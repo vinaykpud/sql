@@ -8,23 +8,27 @@
 
 package org.opensearch.sql.executor;
 
-import java.security.AccessController;
-import java.security.PrivilegedAction;
-import java.util.List;
-import java.util.Optional;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelTraitDef;
+import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.rel.externalize.RelJsonReader;
+import org.apache.calcite.rel.externalize.RelJsonWriter;
+import org.apache.calcite.rel.externalize.RelWriterImpl;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.metadata.DefaultRelMetadataProvider;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.SchemaPlus;
+import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.tools.FrameworkConfig;
 import org.apache.calcite.tools.Frameworks;
@@ -50,6 +54,15 @@ import org.opensearch.sql.planner.logical.LogicalPaginate;
 import org.opensearch.sql.planner.logical.LogicalPlan;
 import org.opensearch.sql.planner.physical.PhysicalPlan;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+
 /** The low level interface of core engine. */
 @RequiredArgsConstructor
 @AllArgsConstructor
@@ -70,6 +83,7 @@ public class QueryService {
       UnresolvedPlan plan,
       QueryType queryType,
       ResponseListener<ExecutionEngine.QueryResponse> listener) {
+    System.out.println("Executing query: " + plan);
     if (shouldUseCalcite(queryType)) {
       executeWithCalcite(plan, queryType, listener);
     } else {
@@ -95,6 +109,7 @@ public class QueryService {
       QueryType queryType,
       ResponseListener<ExecutionEngine.QueryResponse> listener) {
     try {
+      System.out.println("executeWithCalcite query: " + plan);
       AccessController.doPrivileged(
           (PrivilegedAction<Void>)
               () -> {
@@ -104,6 +119,17 @@ public class QueryService {
                 RelNode relNode = analyze(plan, context);
                 RelNode optimized = optimize(relNode, context);
                 RelNode calcitePlan = convertToCalcitePlan(optimized);
+                System.out.println("----calcitePlan explain----");
+                System.out.println(calcitePlan.explain());
+
+                System.out.println("----Serialized----");
+                String jsonStr = serializeToJson(calcitePlan);
+                System.out.println(jsonStr);
+
+                System.out.println("----Deserialize----");
+                RelNode deserializeRel= deserializeToJson(jsonStr);
+                System.out.println(deserializeRel.explain());
+
                 executionEngine.execute(calcitePlan, context, listener);
                 return null;
               });
@@ -119,6 +145,43 @@ public class QueryService {
           listener.onFailure((Exception) t);
         }
       }
+    }
+  }
+
+  public static String serializeToJson(RelNode relNode) {
+    if (relNode == null) {
+      return null;
+    }
+
+    StringWriter sw = new StringWriter();
+    RelJsonWriter jsonWriter = new RelJsonWriter();
+    relNode.explain(jsonWriter);
+    return jsonWriter.asString();
+  }
+
+  public RelNode deserializeToJson(String jsonString) {
+    if (jsonString == null || jsonString.trim().isEmpty()) {
+      return null;
+    }
+
+    try {
+      RelDataTypeFactory typeFactory = org.opensearch.sql.calcite.utils.OpenSearchTypeFactory.TYPE_FACTORY;
+      final SchemaPlus rootSchema = CalciteSchema.createRootSchema(true, false).plus();
+      final SchemaPlus opensearchSchema =
+          rootSchema.add(
+              OpenSearchSchema.OPEN_SEARCH_SCHEMA_NAME, new OpenSearchSchema(dataSourceService));
+      CalciteSchema rootCalciteSchema = CalciteSchema.from(rootSchema);
+      CalciteCatalogReader catalogReader = new CalciteCatalogReader(rootCalciteSchema, 
+          Collections.emptyList(), typeFactory, 
+          org.apache.calcite.config.CalciteConnectionConfigImpl.DEFAULT);
+      org.apache.calcite.rex.RexBuilder rexBuilder = new org.apache.calcite.rex.RexBuilder(typeFactory);
+      org.apache.calcite.plan.volcano.VolcanoPlanner planner = new org.apache.calcite.plan.volcano.VolcanoPlanner();
+      RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
+      
+      RelJsonReader jsonReader = new RelJsonReader(cluster, catalogReader, opensearchSchema);
+      return jsonReader.read(jsonString);
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to deserialize RelNode from JSON", e);
     }
   }
 
@@ -161,6 +224,7 @@ public class QueryService {
       ResponseListener<ExecutionEngine.QueryResponse> listener,
       Optional<Throwable> calciteFailure) {
     try {
+      System.out.println("executeWithLegacy query: " + plan);
       executePlan(analyze(plan, queryType), PlanContext.emptyPlanContext(), listener);
     } catch (Exception e) {
       if (shouldUseCalcite(queryType) && isCalciteFallbackAllowed()) {

@@ -105,6 +105,7 @@ public class PPLService {
         QueryContext.getRequestId(),
         anonymizer.anonymizeStatement(statement));
 
+    //Check if the factory has everything it needed ie opensearhcclient, dsl..ect
     return queryExecutionFactory.create(statement, queryListener, explainListener);
   }
 }

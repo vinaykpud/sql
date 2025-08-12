@@ -21,6 +21,7 @@ import org.apache.calcite.rel.AbstractRelNode;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
+import org.apache.calcite.rel.RelInput;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
@@ -73,6 +74,17 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       RelDataType schema,
       PushDownContext pushDownContext) {
     super(cluster, traitSet, hints, table, osIndex, schema, pushDownContext);
+  }
+
+  public CalciteLogicalIndexScan(RelInput input) {
+    this(
+        input.getCluster(),
+        input.getTraitSet(),
+        ImmutableList.of(),
+        input.getTable("table"),
+        input.getTable("table").unwrap(OpenSearchIndex.class),
+        input.getTable("table").getRowType(),
+        new PushDownContext());
   }
 
   @Override

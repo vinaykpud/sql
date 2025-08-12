@@ -60,7 +60,7 @@ public class OpenSearchExecutionEngine implements ExecutionEngine {
   private final ExecutionProtector executionProtector;
   private final PlanSerializer planSerializer;
 
-  public OpenSearchExecutionEngine(
+    public OpenSearchExecutionEngine(
       OpenSearchClient client,
       ExecutionProtector executionProtector,
       PlanSerializer planSerializer) {
