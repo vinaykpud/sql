@@ -311,7 +311,7 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     List<String> fieldNameList = new ArrayList<>();
     List<RelDataType> typeList = new ArrayList<>();
     Map<String, ExprType> fieldTypes = new LinkedHashMap<>(table.getFieldTypes());
-    fieldTypes.putAll(table.getReservedFieldTypes());
+//    fieldTypes.putAll(table.getReservedFieldTypes());
     for (Entry<String, ExprType> entry : fieldTypes.entrySet()) {
       fieldNameList.add(entry.getKey());
       typeList.add(OpenSearchTypeFactory.convertExprTypeToRelDataType(entry.getValue()));
