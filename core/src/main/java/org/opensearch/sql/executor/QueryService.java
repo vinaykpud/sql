@@ -8,58 +8,43 @@
 
 package org.opensearch.sql.executor;
 
-import java.io.FileNotFoundException;
+import com.google.protobuf.util.JsonFormat;
+import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.SubstraitRelVisitor;
+import io.substrait.plan.Plan;
+import io.substrait.plan.PlanProtoConverter;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-
-import com.google.protobuf.util.JsonFormat;
-
-import io.substrait.extension.ExtensionCollector;
-import io.substrait.extension.SimpleExtension;
-import io.substrait.isthmus.SubstraitRelVisitor;
-import io.substrait.plan.Plan;
-import io.substrait.plan.PlanProtoConverter;
-import io.substrait.relation.Rel;
-
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
-import org.apache.calcite.config.CalciteConnectionConfig;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelTraitDef;
 import org.apache.calcite.prepare.CalciteCatalogReader;
-import org.apache.calcite.prepare.RelOptTableImpl;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelRoot;
-import org.apache.calcite.rel.RelWriter;
 import org.apache.calcite.rel.core.Sort;
 import org.apache.calcite.rel.externalize.RelJsonReader;
 import org.apache.calcite.rel.externalize.RelJsonWriter;
-import org.apache.calcite.rel.externalize.RelWriterImpl;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.apache.calcite.rel.metadata.DefaultRelMetadataProvider;
-import org.apache.calcite.rel.rel2sql.RelToSqlConverter;
-import org.apache.calcite.rel.rel2sql.SqlImplementor;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.SchemaPlus;
-import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlKind;
-import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.dialect.SparkSqlDialect;
-import org.apache.calcite.sql.SqlExplainLevel;
 import org.apache.calcite.sql.parser.SqlParser;
-import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.tools.FrameworkConfig;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.Programs;
@@ -70,9 +55,6 @@ import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.calcite.CalcitePlanContext;
 import org.opensearch.sql.calcite.CalciteRelNodeVisitor;
 import org.opensearch.sql.calcite.OpenSearchSchema;
-import org.apache.calcite.schema.impl.AbstractSchema;
-import org.apache.calcite.schema.Table;
-import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
 import org.opensearch.sql.calcite.plan.LogicalSystemLimit.SystemLimitType;
 import org.opensearch.sql.common.response.ResponseListener;
@@ -86,11 +68,6 @@ import org.opensearch.sql.planner.Planner;
 import org.opensearch.sql.planner.logical.LogicalPaginate;
 import org.opensearch.sql.planner.logical.LogicalPlan;
 import org.opensearch.sql.planner.physical.PhysicalPlan;
-
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.Collections;
-import java.util.Map;
 
 /** The low level interface of core engine. */
 @RequiredArgsConstructor
@@ -113,7 +90,7 @@ public class QueryService {
       QueryType queryType,
       ResponseListener<ExecutionEngine.QueryResponse> listener) {
     System.out.println("Executing query: " + plan);
-    if (true) { // shouldUseCalcite(queryType)) {
+    if (shouldUseCalcite(queryType)) {
       System.out.println("using calcite");
       executeWithCalcite(plan, queryType, listener);
     } else {
@@ -149,13 +126,8 @@ public class QueryService {
                 RelNode relNode = analyze(plan, context);
                 RelNode optimized = optimize(relNode, context);
                 RelNode calcitePlan = convertToCalcitePlan(optimized);
-                System.out.println("----calcitePlan explain----");
-                System.out.println(calcitePlan.explain());
-                long epochTime = System.currentTimeMillis();
-                writeRelNode(calcitePlan, epochTime);
-                // Convert Calcite plan to Substrait using custom approach
-                convertToSubstraitAndSerialize(calcitePlan, dataSourceService, epochTime);
-
+                // Store the complete RelNode tree in context for serialization during scan
+                context.setCompleteRelNodeTree(calcitePlan);
                 executionEngine.execute(calcitePlan, context, listener);
                 return null;
               });
@@ -174,42 +146,7 @@ public class QueryService {
     }
   }
 
-  public static String serializeToJson(RelNode relNode) {
-    if (relNode == null) {
-      return null;
-    }
 
-    StringWriter sw = new StringWriter();
-    RelJsonWriter jsonWriter = new RelJsonWriter();
-    relNode.explain(jsonWriter);
-    return jsonWriter.asString();
-  }
-
-  public RelNode deserializeToJson(String jsonString) {
-    if (jsonString == null || jsonString.trim().isEmpty()) {
-      return null;
-    }
-
-    try {
-      RelDataTypeFactory typeFactory = org.opensearch.sql.calcite.utils.OpenSearchTypeFactory.TYPE_FACTORY;
-      final SchemaPlus rootSchema = CalciteSchema.createRootSchema(true, false).plus();
-      final SchemaPlus opensearchSchema =
-          rootSchema.add(
-              OpenSearchSchema.OPEN_SEARCH_SCHEMA_NAME, new OpenSearchSchema(dataSourceService));
-      CalciteSchema rootCalciteSchema = CalciteSchema.from(rootSchema);
-      CalciteCatalogReader catalogReader = new CalciteCatalogReader(rootCalciteSchema, 
-          Collections.emptyList(), typeFactory, 
-          org.apache.calcite.config.CalciteConnectionConfigImpl.DEFAULT);
-      org.apache.calcite.rex.RexBuilder rexBuilder = new org.apache.calcite.rex.RexBuilder(typeFactory);
-      org.apache.calcite.plan.volcano.VolcanoPlanner planner = new org.apache.calcite.plan.volcano.VolcanoPlanner();
-      RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
-      
-      RelJsonReader jsonReader = new RelJsonReader(cluster, catalogReader, opensearchSchema);
-      return jsonReader.read(jsonString);
-    } catch (IOException e) {
-      throw new RuntimeException("Failed to deserialize RelNode from JSON", e);
-    }
-  }
 
   public void explainWithCalcite(
       UnresolvedPlan plan,
@@ -376,7 +313,7 @@ public class QueryService {
   // TODO https://github.com/opensearch-project/sql/issues/3457
   // Calcite is not available for SQL query now. Maybe release in 3.1.0?
   private boolean shouldUseCalcite(QueryType queryType) {
-    return isCalciteEnabled(settings) && queryType == QueryType.PPL;
+    return true;//isCalciteEnabled(settings) && queryType == QueryType.PPL;
   }
 
   private FrameworkConfig buildFrameworkConfig() {
@@ -394,105 +331,115 @@ public class QueryService {
             .typeSystem(OpenSearchTypeSystem.INSTANCE);
     return configBuilder.build();
   }
-
-  /**
-   * Convert Calcite RelNode to Substrait Plan and serialize it
-   *
-   * @param relNode Calcite RelNode to convert
-   * @param dataSourceService DataSource service for schema information
-   */
-  private void convertToSubstraitAndSerialize(RelNode relNode, DataSourceService dataSourceService, long epochTime) {
-    // Generate unique filename using epoch time
-      // Step 1: Load default Substrait extensions
-      // This includes standard functions, operators, and data types needed for conversion
-      // The loadDefaults() method loads the core Substrait function library
-      SimpleExtension.ExtensionCollection EXTENSIONS =
-              SimpleExtension.loadDefaults();
-
-      // Step 2: Wrap RelNode in a RelRoot with query kind
-      // RelRoot represents the root of a relational query tree with metadata
-      // SqlKind.SELECT indicates this is a SELECT query (vs INSERT, UPDATE, etc.)
-      RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
-
-      // Step 3: Convert Calcite RelRoot to Substrait Plan.Root
-      // This is the core conversion step using SubstraitRelVisitor
-      // The visitor traverses the Calcite tree and converts each node to Substrait equivalent
-      Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
-
-      // Step 4: Build the complete Substrait Plan
-      // Plan contains one or more roots (query entry points) and shared extensions
-      // addRoots() adds the converted relation tree as a query root
-      Plan plan = Plan.builder()
-              .addRoots(substraitRoot)
-              .build();
-
-      // Step 5: Convert to Protocol Buffer format for serialization
-      // PlanProtoConverter handles the conversion from Java objects to protobuf
-      // This enables serialization, storage, and cross-system communication
-      PlanProtoConverter planProtoConverter = new PlanProtoConverter();
-      io.substrait.proto.Plan planProto = planProtoConverter.toProto(plan);
-
-      // Step 6: Generate comprehensive conversion summary
-      // Display both the original Calcite metadata and resulting Substrait structure
-      String planText = "Substrait Plan (0.62.0 API):\n" +
-              "Original Calcite RelNode: " + relNode.getClass().getSimpleName() + "\n" +
-              "Row Type: " + relNode.getRowType().toString() + "\n" +
-              "Field Count: " + relNode.getRowType().getFieldCount() + "\n" +
-              "Field Names: " + relNode.getRowType().getFieldNames() + "\n" +
-              "Relations: " + planProto.getRelationsCount() + "\n" +
-              "Extensions: " + planProto.getExtensionsCount() + "\n" +
-              "Proto Details:\n" + planProto;
-
-    System.out.println(planText);
-    // Write substrait plan to files
-    writeSubstraitPlanToFiles(planProto, epochTime);
-  }
-
-  /**
-   * Write substrait plan to both proto and text files
-   *
-   * @param planProto Substrait plan in protocol buffer format
-   */
-  private void writeSubstraitPlanToFiles(io.substrait.proto.Plan planProto, long epochTime) {
-    try {
-      Path baseDir = Paths.get("/Users/pudyodu/ppl_queries_substrait");
-
-      // Write binary proto file
-      Path protoPath = baseDir.resolve(epochTime + ".proto");
-      try (FileOutputStream fos = new FileOutputStream(protoPath.toFile())) {
-        planProto.writeTo(fos);
-      }
-
-      // Write text file
-      Path textPath = baseDir.resolve(epochTime + ".txt");
-
-      String jsonFormat = JsonFormat.printer()
-              .includingDefaultValueFields()
-              .print(planProto);
-
-      try (FileOutputStream fos = new FileOutputStream(textPath.toFile())) {
-        fos.write(jsonFormat.getBytes());
-      }
-
-      System.out.println("Substrait plan written to:");
-      System.out.println("  Proto: " + protoPath.toAbsolutePath());
-      System.out.println("  Text:  " + textPath.toAbsolutePath());
-
-    } catch (IOException e) {
-      System.err.println("Failed to write substrait plan files: " + e.getMessage());
-      e.printStackTrace();
-    }
-  }
-
-  private void writeRelNode(RelNode relNode, long epochTime) {
-      Path baseDir = Paths.get("/Users/pudyodu/ppl_queries_substrait");
-      Path relNodePath = baseDir.resolve("relNode_" + epochTime + ".txt");
-      try (FileOutputStream fos = new FileOutputStream(relNodePath.toFile())) {
-        fos.write(relNode.explain().getBytes(StandardCharsets.UTF_8));
-      } catch (IOException e) {
-          throw new RuntimeException(e);
-      }
-  }
+//
+//  /**
+//   * Convert Calcite RelNode to Substrait Plan and serialize it
+//   *
+//   * @param relNode Calcite RelNode to convert
+//   * @param dataSourceService DataSource service for schema information
+//   */
+//  private void convertToSubstraitAndSerialize(
+//      RelNode relNode, DataSourceService dataSourceService, long epochTime) {
+//    // Generate unique filename using epoch time
+//    // Step 1: Load default Substrait extensions
+//    // This includes standard functions, operators, and data types needed for conversion
+//    // The loadDefaults() method loads the core Substrait function library
+//    SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
+//
+//    // Step 2: Wrap RelNode in a RelRoot with query kind
+//    // RelRoot represents the root of a relational query tree with metadata
+//    // SqlKind.SELECT indicates this is a SELECT query (vs INSERT, UPDATE, etc.)
+//    RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
+//
+//    // Step 3: Convert Calcite RelRoot to Substrait Plan.Root
+//    // This is the core conversion step using SubstraitRelVisitor
+//    // The visitor traverses the Calcite tree and converts each node to Substrait equivalent
+//    Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+//
+//    // Step 4: Build the complete Substrait Plan
+//    // Plan contains one or more roots (query entry points) and shared extensions
+//    // addRoots() adds the converted relation tree as a query root
+//    Plan plan = Plan.builder().addRoots(substraitRoot).build();
+//
+//    // Step 5: Convert to Protocol Buffer format for serialization
+//    // PlanProtoConverter handles the conversion from Java objects to protobuf
+//    // This enables serialization, storage, and cross-system communication
+//    PlanProtoConverter planProtoConverter = new PlanProtoConverter();
+//    io.substrait.proto.Plan planProto = planProtoConverter.toProto(plan);
+//
+//    // Step 6: Generate comprehensive conversion summary
+//    // Display both the original Calcite metadata and resulting Substrait structure
+//    String planText =
+//        "Substrait Plan (0.62.0 API):\n"
+//            + "Original Calcite RelNode: "
+//            + relNode.getClass().getSimpleName()
+//            + "\n"
+//            + "Row Type: "
+//            + relNode.getRowType().toString()
+//            + "\n"
+//            + "Field Count: "
+//            + relNode.getRowType().getFieldCount()
+//            + "\n"
+//            + "Field Names: "
+//            + relNode.getRowType().getFieldNames()
+//            + "\n"
+//            + "Relations: "
+//            + planProto.getRelationsCount()
+//            + "\n"
+//            + "Extensions: "
+//            + planProto.getExtensionsCount()
+//            + "\n"
+//            + "Proto Details:\n"
+//            + planProto;
+//
+//    System.out.println(planText);
+//    // Write substrait plan to files
+//    writeSubstraitPlanToFiles(planProto, epochTime);
+//  }
+//
+//  /**
+//   * Write substrait plan to both proto and text files
+//   *
+//   * @param planProto Substrait plan in protocol buffer format
+//   */
+//  private void writeSubstraitPlanToFiles(io.substrait.proto.Plan planProto, long epochTime) {
+//    try {
+//      Path baseDir = Paths.get("/Users/pudyodu/ppl_queries_substrait");
+//
+//      // Write binary proto file
+//      Path protoPath = baseDir.resolve(epochTime + ".proto");
+//      try (FileOutputStream fos = new FileOutputStream(protoPath.toFile())) {
+//        planProto.writeTo(fos);
+//      }
+//
+//      // Write text file
+//      Path textPath = baseDir.resolve(epochTime + ".txt");
+//
+//      String jsonFormat = JsonFormat.printer().includingDefaultValueFields().print(planProto);
+//
+//      try (FileOutputStream fos = new FileOutputStream(textPath.toFile())) {
+//        fos.write(jsonFormat.getBytes());
+//      }
+//
+//      System.out.println("Substrait plan written to:");
+//      System.out.println("  Proto: " + protoPath.toAbsolutePath());
+//      System.out.println("  Text:  " + textPath.toAbsolutePath());
+//
+//    } catch (IOException e) {
+//      System.err.println("Failed to write substrait plan files: " + e.getMessage());
+//      e.printStackTrace();
+//    }
+//  }
+//
+//  private void writeRelNode(RelNode relNode, long epochTime) {
+//    Path baseDir = Paths.get("/Users/pudyodu/ppl_queries_substrait");
+//    Path relNodePath = baseDir.resolve("relNode_" + epochTime + ".txt");
+//    try (FileOutputStream fos = new FileOutputStream(relNodePath.toFile())) {
+//      fos.write(relNode.explain().getBytes(StandardCharsets.UTF_8));
+//    } catch (IOException e) {
+//      throw new RuntimeException(e);
+//    }
+//  }
 
   /**
    * Convert OpenSearch Plan to Calcite Plan. Although both plans consist of Calcite RelNodes, there

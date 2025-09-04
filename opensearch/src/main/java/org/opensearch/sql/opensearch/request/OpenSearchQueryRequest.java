@@ -15,9 +15,18 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
+
+import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.SubstraitRelVisitor;
+import io.substrait.plan.Plan;
+import io.substrait.plan.PlanProtoConverter;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelRoot;
+import org.apache.calcite.rel.externalize.RelJsonWriter;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
+import org.apache.calcite.sql.SqlKind;
 import org.opensearch.action.search.*;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -31,6 +40,7 @@ import org.opensearch.search.SearchHits;
 import org.opensearch.search.SearchModule;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
+import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
@@ -166,6 +176,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         return new OpenSearchResponse(SearchHits.empty(), exprValueFactory, includes);
       } else {
         searchDone = true;
+        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize());
         return new OpenSearchResponse(
             searchAction.apply(
                 new SearchRequest().indices(indexName.getIndexNames()).source(sourceBuilder)),
@@ -185,6 +196,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     } else {
       this.sourceBuilder.pointInTimeBuilder(new PointInTimeBuilder(this.pitId));
       this.sourceBuilder.timeout(cursorKeepAlive);
+      this.sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize());
       // check for search after
       if (searchAfter != null) {
         this.sourceBuilder.searchAfter(searchAfter);
@@ -258,4 +270,69 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
           "OpenSearchQueryRequest serialization is not implemented.");
     }
   }
+
+//  /**
+//   * Initialize RelNode JSON from ThreadLocal and clean up.
+//   * This should be called once during construction.
+//   *
+//   * @return JSON string representation of the complete RelNode tree
+//   */
+//  private static String initializeRelNodeJson() {
+//      System.out.println("----> Initializing RelNode <------");
+//      RelNode completeRelNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+//      try {
+//          if (completeRelNode != null) {
+//              System.out.println(completeRelNode.explain());
+//              return serializeToJson(completeRelNode);
+//          } else {
+//              throw new RuntimeException("RelNode cannot be null");
+//          }
+//      } finally {
+//          CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
+//    }
+//  }
+//
+//  /**
+//   * Serialize RelNode to JSON string using Calcite's RelJsonWriter.
+//   *
+//   * @param relNode the RelNode to serialize
+//   * @return JSON string representation of the RelNode
+//   */
+//  private static String serializeToJson(RelNode relNode) {
+//      RelJsonWriter jsonWriter = new RelJsonWriter();
+//      relNode.explain(jsonWriter);
+//      return jsonWriter.asString();
+//  }
+
+    public static byte[] convertToSubstraitAndSerialize() {
+        RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+      // Generate unique filename using epoch time
+        // Step 1: Load default Substrait extensions
+        // This includes standard functions, operators, and data types needed for conversion
+        // The loadDefaults() method loads the core Substrait function library
+        SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
+
+        // Step 2: Wrap RelNode in a RelRoot with query kind
+        // RelRoot represents the root of a relational query tree with metadata
+        // SqlKind.SELECT indicates this is a SELECT query (vs INSERT, UPDATE, etc.)
+        RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
+
+        // Step 3: Convert Calcite RelRoot to Substrait Plan.Root
+        // This is the core conversion step using SubstraitRelVisitor
+        // The visitor traverses the Calcite tree and converts each node to Substrait equivalent
+        // TODO: Explore better way to do this visiting, how to pass UDTs
+        Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+
+        // Step 4: Build the complete Substrait Plan
+        // Plan contains one or more roots (query entry points) and shared extensions
+        // addRoots() adds the converted relation tree as a query root
+        Plan plan = Plan.builder().addRoots(substraitRoot).build();
+
+        // Step 5: Convert to Protocol Buffer format for serialization
+        // PlanProtoConverter handles the conversion from Java objects to protobuf
+        // This enables serialization, storage, and cross-system communication
+        PlanProtoConverter planProtoConverter = new PlanProtoConverter();
+        io.substrait.proto.Plan substraitPlanProto = planProtoConverter.toProto(plan);
+        return substraitPlanProto.toByteArray();
+    }
 }

@@ -137,7 +137,10 @@ public class AsyncQueryExecutorServiceSpec extends OpenSearchIntegTestCase {
 
   @Override
   protected Collection<Class<? extends Plugin>> nodePlugins() {
-    return Arrays.asList(TestSettingPlugin.class);
+//  Add this when i try to run from sql plugin as single node cluster, but doing that
+//  by default uses latest opensearch, but i want to use the dist from local
+//  return Arrays.asList(TestSettingPlugin.class);
+    return getNodePlugins(TestSettingPlugin.class);
   }
 
   public static class TestSettingPlugin extends Plugin {

@@ -35,7 +35,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Instant;
-import java.util.List;
 import java.util.Properties;
 import java.util.function.Consumer;
 import org.apache.calcite.adapter.enumerable.EnumerableConvention;
@@ -336,11 +335,32 @@ public class CalciteToolsHelper {
   }
 
   public static class OpenSearchRelRunners {
+    
+    // ThreadLocal to store the complete RelNode tree for access during scan operations
+    private static final ThreadLocal<RelNode> CURRENT_REL_NODE = new ThreadLocal<>();
+    
+    public static RelNode getCurrentRelNode() {
+        return CURRENT_REL_NODE.get();
+    }
+    
+    private static void setCurrentRelNode(RelNode relNode) {
+        CURRENT_REL_NODE.set(relNode);
+    }
+    
+    public static void clearCurrentRelNode() {
+        CURRENT_REL_NODE.remove();
+    }
+    
     /**
      * Runs a relational expression by existing connection. This class copied from {@link
      * org.apache.calcite.tools.RelRunners#run(RelNode)}
      */
     public static PreparedStatement run(CalcitePlanContext context, RelNode rel) {
+      // Store the complete RelNode tree from context for access during scan operations
+      if (context.getCompleteRelNodeTree() != null) {
+          setCurrentRelNode(context.getCompleteRelNodeTree());
+      }
+      
       final RelShuttle shuttle =
           new RelHomogeneousShuttle() {
             @Override
