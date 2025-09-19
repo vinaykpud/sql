@@ -143,6 +143,8 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     return convertExprTypeToRelDataType(field, true);
   }
 
+  //TODO I think this should be in the interface/abstract depending on the field type and engine type, basically this will come from mapperservice
+    // Since these fields are UDTs, commented since substrait don't know how to convert these. default making them to BIGINT so that we can bypass these
   /** Converts a OpenSearch ExprCoreType field to relational type. */
   public static RelDataType convertExprTypeToRelDataType(ExprType fieldType, boolean nullable) {
     if (fieldType instanceof ExprCoreType) {
@@ -162,17 +164,23 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         case DOUBLE:
           return TYPE_FACTORY.createSqlType(SqlTypeName.DOUBLE, nullable);
         case IP:
-          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
         case STRING:
           return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
         case BOOLEAN:
           return TYPE_FACTORY.createSqlType(SqlTypeName.BOOLEAN, nullable);
         case DATE:
-          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+            // TODO: Since these fields are UDTs, commented since substrait don't know how to convert these.
+            // default making them to BIGINT so that we can bypass these
+//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case TIME:
-          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case TIMESTAMP:
-          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case ARRAY:
           return TYPE_FACTORY.createArrayType(
               TYPE_FACTORY.createSqlType(SqlTypeName.ANY, nullable), -1);
@@ -189,19 +197,24 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
       }
     } else {
       if (fieldType.legacyTypeName().equalsIgnoreCase("binary")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("timestamp")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("date")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("time")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("geo_point")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.GEOMETRY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("text")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("ip")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
       } else if (fieldType.getOriginalPath().isPresent()) {
         return convertExprTypeToRelDataType(fieldType.getOriginalExprType(), nullable);
       } else {
@@ -311,7 +324,8 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     List<String> fieldNameList = new ArrayList<>();
     List<RelDataType> typeList = new ArrayList<>();
     Map<String, ExprType> fieldTypes = new LinkedHashMap<>(table.getFieldTypes());
-    fieldTypes.putAll(table.getReservedFieldTypes());
+    //reason: We don't need metadata fields in the substrait plan
+//    fieldTypes.putAll(table.getReservedFieldTypes());
     for (Entry<String, ExprType> entry : fieldTypes.entrySet()) {
       fieldNameList.add(entry.getKey());
       typeList.add(OpenSearchTypeFactory.convertExprTypeToRelDataType(entry.getValue()));

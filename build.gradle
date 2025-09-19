@@ -143,6 +143,7 @@ allprojects {
         resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${versions.jackson}"
         resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-smile:${versions.jackson}"
         resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:${versions.jackson}"
+        resolutionStrategy.force "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${versions.jackson}"
         resolutionStrategy.force 'com.google.protobuf:protobuf-java:3.25.5'
         resolutionStrategy.force 'org.locationtech.jts:jts-core:1.19.0'
         resolutionStrategy.force 'com.google.errorprone:error_prone_annotations:2.28.0'
@@ -151,6 +152,8 @@ allprojects {
         resolutionStrategy.force 'org.apache.commons:commons-text:1.11.0'
         resolutionStrategy.force 'commons-io:commons-io:2.15.0'
         resolutionStrategy.force 'org.yaml:snakeyaml:2.2'
+        resolutionStrategy.force 'org.apache.calcite.avatica:avatica-core:1.26.0'
+        resolutionStrategy.force 'org.slf4j:slf4j-api:2.0.13'
     }
 }
 
