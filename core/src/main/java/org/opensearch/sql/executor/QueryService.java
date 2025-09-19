@@ -105,6 +105,8 @@ public class QueryService {
             relNode = mergeAdjacentFilters(relNode);
             RelNode optimized = optimize(relNode, context);
             RelNode calcitePlan = convertToCalcitePlan(optimized);
+            // Store the complete RelNode tree in context, this is required to convert to substrait during scan
+            context.setCompleteRelNodeTree(calcitePlan);
             executionEngine.execute(calcitePlan, context, listener);
           } catch (Throwable t) {
             if (isCalciteFallbackAllowed(t) && !(t instanceof NonFallbackCalciteException)) {
@@ -316,7 +318,7 @@ public class QueryService {
   // TODO https://github.com/opensearch-project/sql/issues/3457
   // Calcite is not available for SQL query now. Maybe release in 3.1.0?
   private boolean shouldUseCalcite(QueryType queryType) {
-    return isCalciteEnabled(settings) && queryType == QueryType.PPL;
+    return true;//isCalciteEnabled(settings) && queryType == QueryType.PPL;
   }
 
   private FrameworkConfig buildFrameworkConfig() {

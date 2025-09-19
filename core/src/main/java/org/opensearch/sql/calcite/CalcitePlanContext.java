@@ -16,6 +16,7 @@ import java.util.Stack;
 import java.util.function.BiFunction;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rex.RexCorrelVariable;
 import org.apache.calcite.rex.RexLambdaRef;
 import org.apache.calcite.rex.RexNode;
@@ -60,6 +61,9 @@ public class CalcitePlanContext {
   private final Stack<List<RexNode>> windowPartitions = new Stack<>();
 
   @Getter public Map<String, RexLambdaRef> rexLambdaRefMap;
+
+    // Store the complete RelNode tree for serialization during scan
+    @Getter @Setter private RelNode completeRelNodeTree;
 
   private CalcitePlanContext(FrameworkConfig config, SysLimit sysLimit, QueryType queryType) {
     this.config = config;

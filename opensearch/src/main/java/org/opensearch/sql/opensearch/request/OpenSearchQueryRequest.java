@@ -13,14 +13,27 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
+
+import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.SubstraitRelVisitor;
+import io.substrait.plan.Plan;
+import io.substrait.plan.PlanProtoConverter;
+import io.substrait.relation.NamedScan;
+import io.substrait.relation.Rel;
+import io.substrait.relation.RelCopyOnWriteVisitor;
+import io.substrait.util.EmptyVisitationContext;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelRoot;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.TestOnly;
+import org.apache.calcite.sql.SqlKind;
 import org.opensearch.action.search.*;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -39,6 +52,7 @@ import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
 import org.opensearch.search.sort.ShardDocSortBuilder;
 import org.opensearch.search.sort.SortBuilders;
+import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
@@ -214,6 +228,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         }
       }
 
+      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize());
       SearchRequest searchRequest =
           new SearchRequest().indices(indexName.getIndexNames()).source(this.sourceBuilder);
       this.searchResponse = searchAction.apply(searchRequest);
@@ -354,4 +369,88 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
           "OpenSearchQueryRequest serialization is not implemented.");
     }
   }
+
+    public static byte[] convertToSubstraitAndSerialize() {
+        RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+      // Generate unique filename using epoch time
+        // Step 1: Load default Substrait extensions
+        // This includes standard functions, operators, and data types needed for conversion
+        SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
+
+        // Step 2: Wrap RelNode in a RelRoot with query kind
+        // RelRoot represents the root of a relational query tree with metadata
+        // SqlKind.SELECT indicates this is a SELECT query (vs INSERT, UPDATE, etc.)
+        RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
+
+        // Step 3: Convert Calcite RelRoot to Substrait Plan.Root
+        // This is the core conversion step using SubstraitRelVisitor
+        // The visitor traverses the Calcite tree and converts each node to Substrait equivalent
+        // TODO: Explore better way to do this visiting, how to pass UDTs
+        Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+
+        // Step 4: Build the complete Substrait Plan
+        // Plan contains one or more roots (query entry points) and shared extensions
+        // addRoots() adds the converted relation tree as a query root
+        Plan plan = Plan.builder().addRoots(substraitRoot).build();
+
+        // Step 5: Plan now contains two table names like bellow
+        //        named_table {
+        //            names: "OpenSearch"
+        //            names: "hits"
+        //        }
+        // we want to remove "OpenSearch" as table name for now otherwise execution fails in DF
+        TableNameModifier modifier = new TableNameModifier();
+        Plan modifiedPlan = modifier.modifyTableNames(plan);
+
+        // Step 6: Convert to Protocol Buffer format for serialization
+        // PlanProtoConverter handles the conversion from Java objects to protobuf
+        // This enables serialization, storage, and cross-system communication
+        PlanProtoConverter planProtoConverter = new PlanProtoConverter();
+        io.substrait.proto.Plan substraitPlanProto = planProtoConverter.toProto(plan);
+        io.substrait.proto.Plan substraitPlanProtoModified = planProtoConverter.toProto(modifiedPlan);
+        return substraitPlanProtoModified.toByteArray();
+    }
+
+    private static class TableNameModifier {
+        public Plan modifyTableNames(Plan plan) {
+            TableNameVisitor visitor = new TableNameVisitor();
+
+            // Transform each root in the plan
+            List<Plan.Root> modifiedRoots = new java.util.ArrayList<>();
+
+            for (Plan.Root root : plan.getRoots()) {
+                Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
+                if (modifiedRel.isPresent()) {
+                    modifiedRoots.add(Plan.Root.builder().from(root).input(modifiedRel.get()).build());
+                } else {
+                    modifiedRoots.add(root);
+                }
+            }
+
+            return Plan.builder().from(plan).roots(modifiedRoots).build();
+        }
+
+        private static class TableNameVisitor extends RelCopyOnWriteVisitor<RuntimeException> {
+            @Override
+            public Optional<Rel> visit(NamedScan namedScan, EmptyVisitationContext context) {
+                List<String> currentNames = namedScan.getNames();
+
+                // Filter out names that contain "OpenSearch"
+                List<String> filteredNames = currentNames.stream()
+                    .filter(name -> !name.contains("OpenSearch"))
+                    .collect(java.util.stream.Collectors.toList());
+
+                // Only create a new NamedScan if names were actually filtered
+                if (filteredNames.size() != currentNames.size() && !filteredNames.isEmpty()) {
+                    return Optional.of(
+                            NamedScan.builder()
+                                    .from(namedScan)
+                                    .names(filteredNames)
+                                    .build());
+                }
+
+                return super.visit(namedScan, context);
+            }
+        }
+    }
 }

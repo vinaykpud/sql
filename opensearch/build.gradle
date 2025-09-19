@@ -41,6 +41,10 @@ dependencies {
     compileOnly group: 'org.opensearch.client', name: 'opensearch-rest-high-level-client', version: "${opensearch_version}"
     implementation group: 'org.opensearch', name:'opensearch-ml-client', version: "${opensearch_build}"
     implementation group: 'org.opensearch', name:'geospatial-client', version: "${opensearch_build}"
+    implementation 'io.substrait:core:0.62.0'
+    implementation('io.substrait:isthmus:0.62.0') {
+        exclude group: 'org.apache.calcite'
+    }
 
     annotationProcessor 'org.immutables:value:2.8.8'
     compileOnly 'org.immutables:value-annotations:2.8.8'
