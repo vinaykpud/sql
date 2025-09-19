@@ -168,6 +168,8 @@ allprojects {
         resolutionStrategy.dependencySubstitution {
             substitute module('commons-lang:commons-lang') using module('org.apache.commons:commons-lang3:3.18.0') because 'CVE-2025-48924: commons-lang 2.x vulnerable to StackOverflowError'
         }
+        resolutionStrategy.force 'org.apache.calcite.avatica:avatica-core:1.26.0'
+        resolutionStrategy.force 'org.slf4j:slf4j-api:2.0.13'
     }
 }
 
