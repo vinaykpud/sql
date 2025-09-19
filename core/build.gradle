@@ -62,9 +62,32 @@ dependencies {
         exclude group: 'net.minidev', module: 'json-smart'
     }
     api 'org.apache.calcite:calcite-linq4j:1.41.0'
+
+    // Substrait with latest version 0.55.1 and SLF4J exclusions to avoid conflicts
+    implementation('io.substrait:core:0.62.0') {
+        exclude group: 'ch.qos.logback', module: 'logback-classic'
+        exclude group: 'ch.qos.logback', module: 'logback-core'
+        exclude group: 'org.apache.calcite', module: 'calcite-core'
+        exclude group: 'org.apache.calcite', module: 'calcite-linq4j'
+        exclude group: 'com.google.code.gson', module: 'gson'
+        exclude group: 'org.antlr', module: 'antlr4-runtime'
+        exclude group: 'org.antlr', module: 'antlr4'
+    }
+    implementation('io.substrait:isthmus:0.62.0') {
+        exclude group: 'ch.qos.logback', module: 'logback-classic'
+        exclude group: 'ch.qos.logback', module: 'logback-core'
+        exclude group: 'org.apache.calcite', module: 'calcite-core'
+        exclude group: 'org.apache.calcite', module: 'calcite-linq4j'
+        exclude group: 'com.google.code.gson', module: 'gson'
+        exclude group: 'org.antlr', module: 'antlr4-runtime'
+        exclude group: 'org.antlr', module: 'antlr4'
+    }
+
+    api 'org.apache.calcite:calcite-linq4j:1.38.0'
     api project(':common')
     implementation "com.github.seancfoley:ipaddress:5.4.2"
     implementation "com.jayway.jsonpath:json-path:2.9.0"
+    implementation 'com.google.protobuf:protobuf-java-util:3.25.5'
 
     annotationProcessor('org.immutables:value:2.8.8')
     compileOnly 'org.immutables:value-annotations:2.8.8'
