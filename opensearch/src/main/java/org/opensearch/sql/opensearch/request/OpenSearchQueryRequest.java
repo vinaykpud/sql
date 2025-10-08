@@ -10,6 +10,7 @@ import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
 import static org.opensearch.search.sort.SortOrder.ASC;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +34,12 @@ import lombok.ToString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.TestOnly;
+import org.apache.calcite.rel.RelShuttleImpl;
+import org.apache.calcite.rel.core.AggregateCall;
+import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.tools.Frameworks;
+import org.apache.calcite.tools.RelBuilder;
 import org.opensearch.action.search.*;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -372,7 +378,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
     public static byte[] convertToSubstraitAndSerialize() {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-      // Generate unique filename using epoch time
+
+        // Support to convert average into sum and count aggs else merging at Coordinator won't work.
+        relNode = convertAvgToSumCount(relNode);
+
+       // Generate unique filename using epoch time
         // Step 1: Load default Substrait extensions
         // This includes standard functions, operators, and data types needed for conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
@@ -453,4 +463,52 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             }
         }
     }
+
+  private static RelNode convertAvgToSumCount(RelNode relNode) {
+    return relNode.accept(new RelShuttleImpl() {
+      @Override
+      public RelNode visit(LogicalAggregate aggregate) {
+        boolean hasAvg = aggregate.getAggCallList().stream()
+                .anyMatch(call -> call.getAggregation().getKind() == SqlKind.AVG);
+
+        if (!hasAvg) {
+          return super.visit(aggregate);
+        }
+
+        RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+        builder.push(aggregate.getInput());
+
+        List<RelBuilder.AggCall> newAggCalls = new ArrayList<>();
+
+        for (AggregateCall aggCall : aggregate.getAggCallList()) {
+          if (aggCall.getAggregation().getKind() == SqlKind.AVG) {
+            // Add SUM call
+            newAggCalls.add(builder.sum(aggCall.isDistinct(),
+                    aggCall.getName() + "_sum",
+                    builder.field(aggCall.getArgList().get(0))));
+
+            // Add COUNT call
+            newAggCalls.add(builder.count(aggCall.isDistinct(),
+                    aggCall.getName() + "_count",
+                    builder.field(aggCall.getArgList().get(0))));
+          } else {
+            // Keep other aggregates as-is
+            newAggCalls.add(builder.aggregateCall(aggCall.getAggregation())
+                    .distinct(aggCall.isDistinct())
+                    .approximate(aggCall.isApproximate())
+                    .ignoreNulls(aggCall.ignoreNulls())
+                    .as(aggCall.getName())
+                    .preOperands(aggCall.getArgList().stream()
+                            .map(builder::field)
+                            .collect(java.util.stream.Collectors.toList())));
+          }
+        }
+
+        builder.aggregate(builder.groupKey(aggregate.getGroupSet()), newAggCalls);
+        return builder.build();
+      }
+    });
+  }
+
+
 }
