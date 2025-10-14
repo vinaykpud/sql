@@ -403,14 +403,13 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     builder.field(aggCall.getArgList().get(0))));
           } else {
             // Keep other aggregates as-is
-            newAggCalls.add(builder.aggregateCall(aggCall.getAggregation())
+            newAggCalls.add(builder.aggregateCall(aggCall.getAggregation(), aggCall.getArgList().stream()
+                            .map(builder::field)
+                            .collect(java.util.stream.Collectors.toList()))
                     .distinct(aggCall.isDistinct())
                     .approximate(aggCall.isApproximate())
                     .ignoreNulls(aggCall.ignoreNulls())
-                    .as(aggCall.getName())
-                    .preOperands(aggCall.getArgList().stream()
-                            .map(builder::field)
-                            .collect(java.util.stream.Collectors.toList())));
+                    .as(aggCall.getName()));
           }
         }
 
