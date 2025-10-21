@@ -38,9 +38,16 @@ import org.jetbrains.annotations.TestOnly;
 import org.apache.calcite.rel.RelShuttleImpl;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
+import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.action.search.*;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
@@ -383,6 +390,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
 
+        // Support to convert span
+        relNode = convertSpan(relNode);
+
        // Generate unique filename using epoch time
         // Step 1: Load default Substrait extensions
         // This includes standard functions, operators, and data types needed for conversion
@@ -508,6 +518,83 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         return builder.build();
       }
     });
+  }
+
+  private static RelNode convertSpan(RelNode relNode) {
+      return relNode.accept(new RelShuttleImpl() {
+          @Override
+          public RelNode visit(LogicalProject logicalProject) {
+              System.out.println("Processing LogicalProject: " + logicalProject);
+
+              // Check if any of the project expressions contain SPAN function
+              List<RexNode> originalProjects = logicalProject.getProjects();
+              List<RexNode> transformedProjects = new ArrayList<>();
+              boolean hasSpan = false;
+
+              for (RexNode project : originalProjects) {
+                  if (isSpanFunction(project)) {
+                      hasSpan = true;
+                      transformedProjects.add(transformSpanToFloor(project, logicalProject.getCluster().getRexBuilder()));
+                  } else {
+                      transformedProjects.add(project);
+                  }
+              }
+
+              // If no SPAN functions found, return original
+              if (!hasSpan) {
+                  return super.visit(logicalProject);
+              }
+
+              // Create new LogicalProject with transformed expressions
+              RelNode transformedProject = LogicalProject.create(
+                  logicalProject.getInput(),
+                  logicalProject.getHints(),
+                  transformedProjects,
+                  logicalProject.getRowType()
+              );
+
+              System.out.println("Transformed LogicalProject: " + transformedProject);
+              return transformedProject;
+          }
+
+          private boolean isSpanFunction(RexNode node) {
+              return node instanceof RexCall rexCall
+                  && rexCall.getKind() == SqlKind.OTHER_FUNCTION
+                  && rexCall.getOperator().getName().equalsIgnoreCase(BuiltinFunctionName.SPAN.name());
+          }
+
+          private RexNode transformSpanToFloor(RexNode spanNode, RexBuilder rexBuilder) {
+              RexCall spanCall = (RexCall) spanNode;
+              List<RexNode> operands = spanCall.getOperands();
+
+              // SPAN(field, divisor, unit) -> FLOOR(field / divisor) * divisor
+              // We assume SPAN has at least 2 operands: field and divisor
+              if (operands.size() >= 2) {
+                  RexNode field = operands.get(0);        // $9 in your example
+                  RexNode divisor = operands.get(1);      // 10 in your example
+
+                  // Create field / divisor
+                  RexNode division = rexBuilder.makeCall(SqlStdOperatorTable.DIVIDE, field, divisor);
+
+                  // Cast division to REAL for Substrait compatibility
+                  RexNode realDivision = rexBuilder.makeCast(
+                      rexBuilder.getTypeFactory().createSqlType(SqlTypeName.REAL),
+                      division);
+
+                  // Create FLOOR(field / divisor) with REAL argument
+                  RexNode floor = rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, realDivision);
+
+                  // Create FLOOR(field / divisor) * divisor
+                  RexNode result = rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, floor, divisor);
+
+                  System.out.println("Transformed SPAN(" + field + ", " + divisor + ", ...) to " + result);
+                  return result;
+              } else {
+                  System.out.println("Warning: SPAN function has insufficient operands, returning original");
+                  return spanNode;
+              }
+          }
+      });
   }
 
 
