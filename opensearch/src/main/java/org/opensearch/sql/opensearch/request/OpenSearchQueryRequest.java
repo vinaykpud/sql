@@ -387,34 +387,23 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     public static byte[] convertToSubstraitAndSerialize() {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
 
+        // Preprocess the Calcite plan
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
-
         // Support to convert span
         relNode = convertSpan(relNode);
 
-       // Generate unique filename using epoch time
-        // Step 1: Load default Substrait extensions
-        // This includes standard functions, operators, and data types needed for conversion
+        // Substrait conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
-
-        // Step 2: Wrap RelNode in a RelRoot with query kind
         // RelRoot represents the root of a relational query tree with metadata
-        // SqlKind.SELECT indicates this is a SELECT query (vs INSERT, UPDATE, etc.)
         RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
-
-        // Step 3: Convert Calcite RelRoot to Substrait Plan.Root
-        // This is the core conversion step using SubstraitRelVisitor
-        // The visitor traverses the Calcite tree and converts each node to Substrait equivalent
         // TODO: Explore better way to do this visiting, how to pass UDTs
         Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
-
-        // Step 4: Build the complete Substrait Plan
         // Plan contains one or more roots (query entry points) and shared extensions
         // addRoots() adds the converted relation tree as a query root
         Plan plan = Plan.builder().addRoots(substraitRoot).build();
 
-        // Step 5: Plan now contains two table names like bellow
+        // The Plan now contains two table names like bellow
         //        named_table {
         //            names: "OpenSearch"
         //            names: "hits"
@@ -423,11 +412,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         TableNameModifier modifier = new TableNameModifier();
         Plan modifiedPlan = modifier.modifyTableNames(plan);
 
-        // Step 6: Convert to Protocol Buffer format for serialization
+        // Convert to Protocol Buffer format for serialization
         // PlanProtoConverter handles the conversion from Java objects to protobuf
         // This enables serialization, storage, and cross-system communication
         PlanProtoConverter planProtoConverter = new PlanProtoConverter();
-        io.substrait.proto.Plan substraitPlanProto = planProtoConverter.toProto(plan);
         io.substrait.proto.Plan substraitPlanProtoModified = planProtoConverter.toProto(modifiedPlan);
         return substraitPlanProtoModified.toByteArray();
     }
