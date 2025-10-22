@@ -524,9 +524,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       return relNode.accept(new RelShuttleImpl() {
           @Override
           public RelNode visit(LogicalProject logicalProject) {
-              System.out.println("Processing LogicalProject: " + logicalProject);
-
-              // Check if any of the project expressions contain SPAN function
               List<RexNode> originalProjects = logicalProject.getProjects();
               List<RexNode> transformedProjects = new ArrayList<>();
               boolean hasSpan = false;
@@ -540,21 +537,16 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                   }
               }
 
-              // If no SPAN functions found, return original
               if (!hasSpan) {
                   return super.visit(logicalProject);
               }
 
-              // Create new LogicalProject with transformed expressions
-              RelNode transformedProject = LogicalProject.create(
+              return LogicalProject.create(
                   logicalProject.getInput(),
                   logicalProject.getHints(),
                   transformedProjects,
                   logicalProject.getRowType()
               );
-
-              System.out.println("Transformed LogicalProject: " + transformedProject);
-              return transformedProject;
           }
 
           private boolean isSpanFunction(RexNode node) {
@@ -568,29 +560,18 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               List<RexNode> operands = spanCall.getOperands();
 
               // SPAN(field, divisor, unit) -> FLOOR(field / divisor) * divisor
-              // We assume SPAN has at least 2 operands: field and divisor
               if (operands.size() >= 2) {
-                  RexNode field = operands.get(0);        // $9 in your example
-                  RexNode divisor = operands.get(1);      // 10 in your example
+                  RexNode field = operands.get(0);
+                  RexNode divisor = operands.get(1);
 
-                  // Create field / divisor
                   RexNode division = rexBuilder.makeCall(SqlStdOperatorTable.DIVIDE, field, divisor);
-
                   // Cast division to REAL for Substrait compatibility
                   RexNode realDivision = rexBuilder.makeCast(
                       rexBuilder.getTypeFactory().createSqlType(SqlTypeName.REAL),
                       division);
-
-                  // Create FLOOR(field / divisor) with REAL argument
                   RexNode floor = rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, realDivision);
-
-                  // Create FLOOR(field / divisor) * divisor
-                  RexNode result = rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, floor, divisor);
-
-                  System.out.println("Transformed SPAN(" + field + ", " + divisor + ", ...) to " + result);
-                  return result;
+                  return rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, floor, divisor);
               } else {
-                  System.out.println("Warning: SPAN function has insufficient operands, returning original");
                   return spanNode;
               }
           }
