@@ -38,6 +38,7 @@ import org.jetbrains.annotations.TestOnly;
 import org.apache.calcite.rel.RelShuttleImpl;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
@@ -392,6 +393,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertAvgToSumCount(relNode);
         // Support to convert span
         relNode = convertSpan(relNode);
+        // Support to convert ILIKE
+        relNode = convertILike(relNode);
 
         // Substrait conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
@@ -565,6 +568,75 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
           }
       });
   }
+
+    private static RelNode convertILike(RelNode relNode) {
+        return relNode.accept(new RelShuttleImpl() {
+            @Override
+            public RelNode visit(LogicalFilter logicalFilter) {
+                // Transform the filter condition to convert ILIKE to LIKE
+                RexNode originalCondition = logicalFilter.getCondition();
+                RexNode transformedCondition = transformCondition(originalCondition, logicalFilter.getCluster().getRexBuilder());
+
+                // If no transformation occurred, return original
+                if (transformedCondition == originalCondition) {
+                    return super.visit(logicalFilter);
+                }
+
+                // Create new LogicalFilter with transformed condition
+                return LogicalFilter.create(
+                        logicalFilter.getInput(),
+                        transformedCondition
+                );
+            }
+
+            private RexNode transformCondition(RexNode condition, RexBuilder rexBuilder) {
+                if (condition instanceof RexCall rexCall) {
+                    if (isILikeFunction(rexCall)) {
+                        return transformILikeToLike(rexCall, rexBuilder);
+                    }
+
+                    // Recursively transform operands for compound expressions
+                    List<RexNode> originalOperands = rexCall.getOperands();
+                    List<RexNode> transformedOperands = new ArrayList<>();
+                    boolean hasTransformation = false;
+
+                    for (RexNode operand : originalOperands) {
+                        RexNode transformedOperand = transformCondition(operand, rexBuilder);
+                        transformedOperands.add(transformedOperand);
+                        if (transformedOperand != operand) {
+                            hasTransformation = true;
+                        }
+                    }
+
+                    // If any operand was transformed, create new call with transformed operands
+                    if (hasTransformation) {
+                        return rexBuilder.makeCall(rexCall.getOperator(), transformedOperands);
+                    }
+                }
+                return condition;
+            }
+
+            private boolean isILikeFunction(RexCall rexCall) {
+                return rexCall.getOperator() == SqlLibraryOperators.ILIKE;
+            }
+
+            private RexNode transformILikeToLike(RexCall iLikeCall, RexBuilder rexBuilder) {
+                List<RexNode> operands = iLikeCall.getOperands();
+
+                // ILIKE typically has 2-3 operands: (field, pattern) or (field, pattern, escape)
+                if (operands.size() >= 2) {
+                    RexNode field = operands.get(0);
+                    RexNode pattern = operands.get(1);
+                    // Use UPPER for both field and pattern so that its case in-sensitive
+                    RexNode upperField = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, field);
+                    RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
+
+                    return rexBuilder.makeCall(SqlStdOperatorTable.LIKE, upperField, upperPattern);
+                }
+                return iLikeCall;
+            }
+        });
+    }
 
 
 }
