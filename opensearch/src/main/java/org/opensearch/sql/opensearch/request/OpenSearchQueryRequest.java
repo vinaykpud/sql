@@ -18,7 +18,6 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import com.google.common.collect.ImmutableList;
 import io.substrait.extension.SimpleExtension;
 import io.substrait.isthmus.SubstraitRelVisitor;
 import io.substrait.plan.Plan;
@@ -27,14 +26,15 @@ import io.substrait.relation.NamedScan;
 import io.substrait.relation.Rel;
 import io.substrait.relation.RelCopyOnWriteVisitor;
 import io.substrait.util.EmptyVisitationContext;
-import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.RelRoot;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.TestOnly;
+import org.apache.calcite.plan.RelOptUtil;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.RelShuttleImpl;
 import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
@@ -42,14 +42,17 @@ import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
-import org.opensearch.sql.expression.function.BuiltinFunctionName;
-import org.opensearch.action.search.*;
+import org.apache.calcite.util.Pair;
+import org.opensearch.action.search.SearchRequest;
+import org.opensearch.action.search.SearchResponse;
+import org.opensearch.action.search.SearchScrollRequest;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.xcontent.XContentType;
@@ -65,13 +68,21 @@ import org.opensearch.search.aggregations.bucket.composite.InternalComposite;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
-import org.opensearch.search.sort.ShardDocSortBuilder;
+//import org.opensearch.search.sort.ShardDocSortBuilder;
 import org.opensearch.search.sort.SortBuilders;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
+import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
+
+import java.util.HashMap;
+import java.util.stream.Collectors;
+
+import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
+import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
+import static org.opensearch.search.sort.SortOrder.ASC;
 
 /**
  * OpenSearch search request. This has to be stateful because it needs to:
@@ -289,7 +300,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       if (this.sourceBuilder.sorts() == null || this.sourceBuilder.sorts().isEmpty()) {
         // If no sort field specified, sort by `_doc` + `_shard_doc`to get better performance
         this.sourceBuilder.sort(DOC_FIELD_NAME, ASC);
-        this.sourceBuilder.sort(SortBuilders.shardDocSort());
+//        this.sourceBuilder.sort(SortBuilders.shardDocSort());
       } else {
         // If sort fields specified, sort by `fields` + `_doc` + `_shard_doc`.
         if (this.sourceBuilder.sorts().stream()
@@ -297,9 +308,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 b -> b instanceof FieldSortBuilder f && f.fieldName().equals(DOC_FIELD_NAME))) {
           this.sourceBuilder.sort(DOC_FIELD_NAME, ASC);
         }
-        if (this.sourceBuilder.sorts().stream().noneMatch(ShardDocSortBuilder.class::isInstance)) {
-          this.sourceBuilder.sort(SortBuilders.shardDocSort());
-        }
+//        if (this.sourceBuilder.sorts().stream().noneMatch(ShardDocSortBuilder.class::isInstance)) {
+//          this.sourceBuilder.sort(SortBuilders.shardDocSort());
+//        }
       }
       SearchRequest searchRequest =
           new SearchRequest().indices(indexName.getIndexNames()).source(this.sourceBuilder);
@@ -388,6 +399,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     public static byte[] convertToSubstraitAndSerialize() {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
 
+        LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
+
         // Preprocess the Calcite plan
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
@@ -395,6 +408,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertSpan(relNode);
         // Support to convert ILIKE
         relNode = convertILike(relNode);
+
+        LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Substrait conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
@@ -467,48 +482,109 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
   private static RelNode convertAvgToSumCount(RelNode relNode) {
-    return relNode.accept(new RelShuttleImpl() {
-      @Override
-      public RelNode visit(LogicalAggregate aggregate) {
-        boolean hasAvg = aggregate.getAggCallList().stream()
-                .anyMatch(call -> call.getAggregation().getKind() == SqlKind.AVG);
+      // Track: original AVG field index → (new SUM index, new COUNT index)
+      Map<Integer, Pair<Integer, Integer>> avgFieldMapping = new HashMap<>();
 
-        if (!hasAvg) {
-          return super.visit(aggregate);
-        }
+      return relNode.accept(
+              new RelShuttleImpl() {
 
-        RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
-        builder.push(aggregate.getInput());
+                  @Override
+                  public RelNode visit(LogicalAggregate aggregate) {
+                      RelNode newInput = aggregate.getInput().accept(this);
 
-        List<RelBuilder.AggCall> newAggCalls = new ArrayList<>();
+                      boolean hasAvg =
+                              aggregate.getAggCallList().stream()
+                                      .anyMatch(call -> call.getAggregation().getKind() == SqlKind.AVG);
 
-        for (AggregateCall aggCall : aggregate.getAggCallList()) {
-          if (aggCall.getAggregation().getKind() == SqlKind.AVG) {
-            // Add SUM call
-            newAggCalls.add(builder.sum(aggCall.isDistinct(),
-                    aggCall.getName() + "_sum",
-                    builder.field(aggCall.getArgList().get(0))));
+                      if (!hasAvg) {
+                          return aggregate.copy(aggregate.getTraitSet(), Collections.singletonList(newInput));
+                      }
 
-            // Add COUNT call
-            newAggCalls.add(builder.count(aggCall.isDistinct(),
-                    aggCall.getName() + "_count",
-                    builder.field(aggCall.getArgList().get(0))));
-          } else {
-            // Keep other aggregates as-is
-            newAggCalls.add(builder.aggregateCall(aggCall.getAggregation(), aggCall.getArgList().stream()
-                            .map(builder::field)
-                            .collect(java.util.stream.Collectors.toList()))
-                    .distinct(aggCall.isDistinct())
-                    .approximate(aggCall.isApproximate())
-                    .ignoreNulls(aggCall.ignoreNulls())
-                    .as(aggCall.getName()));
-          }
-        }
+                      RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                      builder.push(newInput);
 
-        builder.aggregate(builder.groupKey(aggregate.getGroupSet()), newAggCalls);
-        return builder.build();
-      }
-    });
+                      List<RelBuilder.AggCall> newAggCalls = new ArrayList<>();
+                      int newFieldIndex = aggregate.getGroupCount();
+
+                      for (int i = 0; i < aggregate.getAggCallList().size(); i++) {
+                          AggregateCall aggCall = aggregate.getAggCallList().get(i);
+                          int originalFieldIndex = aggregate.getGroupCount() + i;
+
+                          if (aggCall.getAggregation().getKind() == SqlKind.AVG) {
+                              avgFieldMapping.put(originalFieldIndex, Pair.of(newFieldIndex, newFieldIndex + 1));
+
+                              newAggCalls.add(
+                                      builder.sum(
+                                              aggCall.isDistinct(),
+                                              aggCall.getName() + "_sum",
+                                              builder.field(aggCall.getArgList().get(0))));
+                              newAggCalls.add(
+                                      builder.count(
+                                              aggCall.isDistinct(),
+                                              aggCall.getName() + "_count",
+                                              builder.field(aggCall.getArgList().get(0))));
+                              newFieldIndex += 2;
+                          } else {
+                              newAggCalls.add(
+                                      builder
+                                              .aggregateCall(
+                                                      aggCall.getAggregation(),
+                                                      aggCall.getArgList().stream()
+                                                              .map(builder::field)
+                                                              .collect(Collectors.toList()))
+                                              .distinct(aggCall.isDistinct())
+                                              .as(aggCall.getName()));
+                              newFieldIndex++;
+                          }
+                      }
+
+                      builder.aggregate(
+                              builder.groupKey(aggregate.getGroupSet(), aggregate.getGroupSets()), newAggCalls);
+                      return builder.build();
+                  }
+
+                  @Override
+                  public RelNode visit(LogicalProject project) {
+                      RelNode newInput = project.getInput().accept(this);
+
+                      if (avgFieldMapping.isEmpty()) {
+                          return project.copy(project.getTraitSet(), Collections.singletonList(newInput));
+                      }
+
+                      RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                      builder.push(newInput);
+
+                      List<RexNode> newProjects = new ArrayList<>();
+                      List<String> newNames = new ArrayList<>();
+
+                      for (int i = 0; i < project.getProjects().size(); i++) {
+                          RexNode expr = project.getProjects().get(i);
+                          String name = project.getRowType().getFieldNames().get(i);
+
+                          // If this is a direct reference to an AVG field, expand to SUM + COUNT
+                          if (expr instanceof RexInputRef) {
+                              RexInputRef inputRef = (RexInputRef) expr;
+                              Pair<Integer, Integer> mapping = avgFieldMapping.get(inputRef.getIndex());
+
+                              if (mapping != null) {
+                                  // Add both SUM and COUNT columns
+                                  newProjects.add(builder.field(mapping.left));
+                                  newNames.add(name + "_sum");
+                                  newProjects.add(builder.field(mapping.right));
+                                  newNames.add(name + "_count");
+                                  continue;
+                              }
+                          }
+
+                          // Keep other expressions as-is
+                          newProjects.add(expr);
+                          newNames.add(name);
+                      }
+
+                      builder.project(newProjects, newNames);
+                      return builder.build();
+                  }
+              });
   }
 
   private static RelNode convertSpan(RelNode relNode) {
