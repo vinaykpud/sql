@@ -399,7 +399,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
-        long startTimeSubstrait = System.nanoTime();
         // Preprocess the Calcite plan
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
@@ -410,16 +409,17 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
+        long startTimeSubstrait = System.nanoTime();
         // Substrait conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
         // RelRoot represents the root of a relational query tree with metadata
         RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
         // Need to use the Visitor's constructor to pass in custom function signatures for UDF when required.
         Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+        long endTimeSubstraitConvert = System.nanoTime();
         // Plan contains one or more roots (query entry points) and shared extensions
         // addRoots() adds the converted relation tree as a query root
         Plan plan = Plan.builder().addRoots(substraitRoot).build();
-
         // The Plan now contains two table names like bellow
         //        named_table {
         //            names: "OpenSearch"
@@ -434,9 +434,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // This enables serialization, storage, and cross-system communication
         PlanProtoConverter planProtoConverter = new PlanProtoConverter();
         io.substrait.proto.Plan substraitPlanProtoModified = planProtoConverter.toProto(modifiedPlan);
-        long endTimeSubstrait = System.nanoTime();
-        LOGGER.info("Time taken to convert to Substrait (ns) {}", endTimeSubstrait-startTimeSubstrait);
-        LOGGER.info("Time taken to convert to Substrait (ms) {}", (endTimeSubstrait-startTimeSubstrait)/1000000);
+        LOGGER.info("Time taken to convert to Substrait convert (ms) {}", (endTimeSubstraitConvert-startTimeSubstrait)/1000000);
         LOGGER.info("Substrait Logical Plan \n {}", substraitPlanProtoModified.toString());
         return substraitPlanProtoModified.toByteArray();
     }
