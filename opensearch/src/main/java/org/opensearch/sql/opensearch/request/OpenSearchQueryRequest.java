@@ -29,6 +29,7 @@ import io.substrait.util.EmptyVisitationContext;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.ToString;
+import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.TestOnly;
@@ -79,10 +80,6 @@ import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
 
 import java.util.HashMap;
 import java.util.stream.Collectors;
-
-import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
-import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
-import static org.opensearch.search.sort.SortOrder.ASC;
 
 /**
  * OpenSearch search request. This has to be stateful because it needs to:
@@ -401,7 +398,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
-        long startTimeSubstrait = System.nanoTime();
         // Preprocess the Calcite plan
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
@@ -412,16 +408,17 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
+        long startTimeSubstrait = System.nanoTime();
         // Substrait conversion
         SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
         // RelRoot represents the root of a relational query tree with metadata
         RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
         // TODO: Explore better way to do this visiting, how to pass UDTs
         Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+        long endTimeSubstraitConvert = System.nanoTime();
         // Plan contains one or more roots (query entry points) and shared extensions
         // addRoots() adds the converted relation tree as a query root
         Plan plan = Plan.builder().addRoots(substraitRoot).build();
-
         // The Plan now contains two table names like bellow
         //        named_table {
         //            names: "OpenSearch"
@@ -436,9 +433,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // This enables serialization, storage, and cross-system communication
         PlanProtoConverter planProtoConverter = new PlanProtoConverter();
         io.substrait.proto.Plan substraitPlanProtoModified = planProtoConverter.toProto(modifiedPlan);
-        long endTimeSubstrait = System.nanoTime();
-        LOG.info("Time taken to convert to Substrait (ns) {}", endTimeSubstrait-startTimeSubstrait);
-        LOG.info("Time taken to convert to Substrait (ms) {}", (endTimeSubstrait-startTimeSubstrait)/1000000);
+        LOG.info("Time taken to convert to Substrait convert (ms) {}", (endTimeSubstraitConvert-startTimeSubstrait)/1000000);
         LOG.info("Substrait Logical Plan \n {}", substraitPlanProtoModified.toString());
         return substraitPlanProtoModified.toByteArray();
     }
