@@ -64,7 +64,7 @@ dependencies {
     api 'org.apache.calcite:calcite-linq4j:1.41.0'
 
     // Substrait with latest version 0.55.1 and SLF4J exclusions to avoid conflicts
-    implementation('io.substrait:core:0.62.0') {
+    implementation('io.substrait:core:0.67.0') {
         exclude group: 'ch.qos.logback', module: 'logback-classic'
         exclude group: 'ch.qos.logback', module: 'logback-core'
         exclude group: 'org.apache.calcite', module: 'calcite-core'
@@ -73,7 +73,7 @@ dependencies {
         exclude group: 'org.antlr', module: 'antlr4-runtime'
         exclude group: 'org.antlr', module: 'antlr4'
     }
-    implementation('io.substrait:isthmus:0.62.0') {
+    implementation('io.substrait:isthmus:0.67.0') {
         exclude group: 'ch.qos.logback', module: 'logback-classic'
         exclude group: 'ch.qos.logback', module: 'logback-core'
         exclude group: 'org.apache.calcite', module: 'calcite-core'
