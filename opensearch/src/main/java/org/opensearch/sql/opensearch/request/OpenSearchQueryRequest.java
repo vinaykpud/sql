@@ -18,8 +18,15 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.ImmutableFeatureBoard;
 import io.substrait.isthmus.SubstraitRelVisitor;
+import io.substrait.isthmus.TypeConverter;
+import io.substrait.isthmus.expression.AggregateFunctionConverter;
+import io.substrait.isthmus.expression.FunctionMappings;
+import io.substrait.isthmus.expression.ScalarFunctionConverter;
+import io.substrait.isthmus.expression.WindowFunctionConverter;
 import io.substrait.plan.Plan;
 import io.substrait.plan.PlanProtoConverter;
 import io.substrait.relation.NamedScan;
@@ -41,11 +48,14 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
@@ -405,16 +415,18 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertSpan(relNode);
         // Support to convert ILIKE
         relNode = convertILike(relNode);
+        // Support to convert Extract
+        relNode = convertExtract(relNode);
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
         long startTimeSubstrait = System.nanoTime();
         // Substrait conversion
-        SimpleExtension.ExtensionCollection EXTENSIONS = SimpleExtension.loadDefaults();
         // RelRoot represents the root of a relational query tree with metadata
         RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
-        // TODO: Explore better way to do this visiting, how to pass UDTs
-        Plan.Root substraitRoot = SubstraitRelVisitor.convert(root, EXTENSIONS);
+        Rel substraitRel = createVisitor(relNode).apply(root.rel);
+        Plan.Root substraitRoot = Plan.Root.builder().input(substraitRel).build();
+
         long endTimeSubstraitConvert = System.nanoTime();
         // Plan contains one or more roots (query entry points) and shared extensions
         // addRoots() adds the converted relation tree as a query root
@@ -436,6 +448,37 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         LOG.info("Time taken to convert to Substrait convert (ms) {}", (endTimeSubstraitConvert-startTimeSubstrait)/1000000);
         LOG.info("Substrait Logical Plan \n {}", substraitPlanProtoModified.toString());
         return substraitPlanProtoModified.toByteArray();
+    }
+
+    private static SubstraitRelVisitor createVisitor(RelNode relNode) {
+        List<FunctionMappings.Sig> customSigs = List.of(new FunctionMappings.Sig(
+                SqlStdOperatorTable.EXTRACT, "EXTRACT"
+        ));
+
+        SimpleExtension.ExtensionCollection EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION;
+        RelDataTypeFactory typeFactory = relNode.getCluster().getTypeFactory();
+        AggregateFunctionConverter aggConverter = new AggregateFunctionConverter(
+                EXTENSIONS.aggregateFunctions(),
+                typeFactory
+        );
+        ScalarFunctionConverter scalarConverter = new ScalarFunctionConverter(
+                EXTENSIONS.scalarFunctions(),
+                customSigs,
+                typeFactory,
+                TypeConverter.DEFAULT
+        );
+        WindowFunctionConverter windowConverter = new WindowFunctionConverter(
+                EXTENSIONS.windowFunctions(),
+                typeFactory
+        );
+
+        return new SubstraitRelVisitor(
+                typeFactory,
+                scalarConverter,
+                aggConverter,
+                windowConverter,
+                TypeConverter.DEFAULT,
+                ImmutableFeatureBoard.builder().build());
     }
 
     private static class TableNameModifier {
@@ -714,5 +757,118 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         });
     }
 
+    private static RelNode convertExtract(RelNode relNode) {
+        return relNode.accept(new RelShuttleImpl() {
+            @Override
+            public RelNode visit(LogicalProject logicalProject) {
+                List<RexNode> originalProjects = logicalProject.getProjects();
+                List<RexNode> transformedProjects = new ArrayList<>();
+                boolean hasExtract = false;
+
+                for (RexNode project : originalProjects) {
+                    if (isExtractFunction(project)) {
+                        hasExtract = true;
+                        transformedProjects.add(transformExtract(project, logicalProject.getCluster().getRexBuilder()));
+                    } else {
+                        transformedProjects.add(project);
+                    }
+                }
+
+                if (!hasExtract) {
+                    return super.visit(logicalProject);
+                }
+
+                return LogicalProject.create(
+                    logicalProject.getInput(),
+                    logicalProject.getHints(),
+                    transformedProjects,
+                    logicalProject.getRowType()
+                );
+            }
+
+            private boolean isExtractFunction(RexNode node) {
+                //For UserDefinedFunctions
+                return node instanceof RexCall rexCall
+                        && rexCall.getKind() == SqlKind.OTHER_FUNCTION
+                        && rexCall.getOperator().getName().equalsIgnoreCase("EXTRACT");
+            }
+
+            private RexNode transformExtract(RexNode extractNode, RexBuilder rexBuilder) {
+                RexCall extractCall = (RexCall) extractNode;
+                List<RexNode> operands = extractCall.getOperands();
+
+                // EXTRACT has 2 operands: time unit and date field
+                if (operands.size() >= 2) {
+                    RexNode timeUnitOperand = operands.get(0); // The time unit (e.g., 'YEAR')
+                    RexNode dateField = operands.get(1); // The date field ($0)
+
+                    // Convert string time unit to proper TimeUnitRange flag, this is required for Substrait compatibility
+                    RexNode timeUnitFlag;
+                    if (timeUnitOperand instanceof org.apache.calcite.rex.RexLiteral) {
+                        org.apache.calcite.rex.RexLiteral literal = (org.apache.calcite.rex.RexLiteral) timeUnitOperand;
+                        String timeUnitStr = literal.getValueAs(String.class);
+
+                        // Map the string to proper TimeUnitRange enum
+                        org.apache.calcite.avatica.util.TimeUnitRange timeUnitRange = mapStringToTimeUnitRange(timeUnitStr);
+                        timeUnitFlag = rexBuilder.makeFlag(timeUnitRange);
+                    } else {
+                        // If not a literal, use as-is (fallback)
+                        timeUnitFlag = timeUnitOperand;
+                    }
+
+                    // Create the standard EXTRACT call using SqlStdOperatorTable.EXTRACT
+                    // This maintains the same semantic meaning but uses the standard operator
+                    return rexBuilder.makeCall(
+                        SqlStdOperatorTable.EXTRACT,
+                        timeUnitFlag,
+                        dateField
+                    );
+                } else {
+                    return extractNode;
+                }
+            }
+
+            private org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
+                // Map OpenSearch time unit strings to Calcite TimeUnitRange
+                switch (timeUnitStr.toUpperCase()) {
+                    case "YEAR_MONTH":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
+                    case "YEAR":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
+                    case "MONTH":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
+                    case "DAY":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
+                    case "HOUR":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
+                    case "MINUTE":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
+                    case "SECOND":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
+                    case "QUARTER":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.QUARTER;
+                    case "WEEK":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
+                    case "MICROSECOND":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.MICROSECOND;
+                    case "DAY_HOUR":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
+                    case "DAY_MINUTE":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
+                    case "DAY_SECOND":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
+                    case "HOUR_MINUTE":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
+                    case "HOUR_SECOND":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
+                    case "MINUTE_SECOND":
+                        return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE_TO_SECOND;
+                    default:
+                        // Default fallback to YEAR if unknown
+                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
+                }
+            }
+        });
+    }
 
 }
