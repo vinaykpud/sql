@@ -149,7 +149,14 @@ public class AggregateAnalyzer {
     <T> T build(RexNode node, Function<String, T> fieldBuilder, Function<Script, T> scriptBuilder) {
       if (node == null) return fieldBuilder.apply(METADATA_FIELD);
       else if (node instanceof RexInputRef ref) {
-        return fieldBuilder.apply(inferNamedField(node).getReferenceForTermQuery());
+        // TODO : Workaround to ensure SQL plugin generates Composite aggs for Keyword field
+        // Else it performs a Query without any composite aggs to account for Null values.
+        NamedFieldExpression namedField = new NamedFieldExpression(ref.getIndex(), rowType.getFieldNames(), fieldTypes);
+        String fieldReference = namedField.getReferenceForTermQuery();
+        if (fieldReference == null) {
+          fieldReference = namedField.getRootName();
+        }
+        return fieldBuilder.apply(fieldReference);
       } else if (node instanceof RexCall || node instanceof RexLiteral) {
         return scriptBuilder.apply(inferScript(node).getScript());
       }

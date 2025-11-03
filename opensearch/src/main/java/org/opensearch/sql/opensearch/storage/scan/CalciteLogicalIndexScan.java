@@ -384,9 +384,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action);
       return newScan;
     } catch (Exception e) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Cannot pushdown the aggregate {}", aggregate, e);
-      }
+        LOG.info("Cannot pushdown the aggregate {}", aggregate, e);
     }
     return null;
   }

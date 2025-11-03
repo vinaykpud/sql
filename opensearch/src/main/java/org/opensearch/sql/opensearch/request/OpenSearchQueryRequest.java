@@ -79,8 +79,6 @@ import org.opensearch.search.aggregations.bucket.composite.InternalComposite;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
-//import org.opensearch.search.sort.ShardDocSortBuilder;
-import org.opensearch.search.sort.SortBuilders;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
@@ -296,6 +294,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
     } else {
       this.sourceBuilder.pointInTimeBuilder(new PointInTimeBuilder(this.pitId));
+      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(exprValueFactory));
       this.sourceBuilder.timeout(cursorKeepAlive);
       // check for search after
       if (searchAfter != null) {
@@ -403,7 +402,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
   }
 
-    public static byte[] convertToSubstraitAndSerialize() {
+    public static byte[] convertToSubstraitAndSerialize(OpenSearchExprValueFactory index) {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
 
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));

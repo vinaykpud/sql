@@ -357,6 +357,8 @@ public class CalciteToolsHelper {
      */
     public static PreparedStatement run(CalcitePlanContext context, RelNode rel) {
       // Store the complete RelNode tree from context for access during scan operations
+      // FIXME : This also captures the things which SQL plugin doesn't push down
+      // FIXME : We need to capture the Calcite when SQL plugin generates DSL instead.
       if (context.getCompleteRelNodeTree() != null) {
           setCurrentRelNode(context.getCompleteRelNodeTree());
       }
