@@ -827,6 +827,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 }
             }
 
+            // TODO: Support all the formats given in https://github.com/opensearch-project/sql/blob/main/docs/user/ppl/functions/datetime.rst#extract
             private org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
                 // Map OpenSearch time unit strings to Calcite TimeUnitRange
                 switch (timeUnitStr.toUpperCase()) {
