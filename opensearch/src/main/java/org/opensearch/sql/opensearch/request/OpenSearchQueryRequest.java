@@ -756,6 +756,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         });
     }
 
+<<<<<<< HEAD
     private static RelNode convertExtract(RelNode relNode) {
         return relNode.accept(new RelShuttleImpl() {
             @Override
@@ -871,4 +872,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         });
     }
 
+=======
+>>>>>>> 2dad0763e (Making terms agg work for string and date work for substrait schema)
 }
