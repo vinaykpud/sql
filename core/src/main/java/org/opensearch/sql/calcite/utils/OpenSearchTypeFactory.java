@@ -171,16 +171,15 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         case BOOLEAN:
           return TYPE_FACTORY.createSqlType(SqlTypeName.BOOLEAN, nullable);
         case DATE:
-            // TODO: Since these fields are UDTs, commented since substrait don't know how to convert these.
             // default making them to BIGINT so that we can bypass these
-//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
-            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
         case TIME:
 //          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
             return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case TIMESTAMP:
 //          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
-            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
         case ARRAY:
           return TYPE_FACTORY.createArrayType(
               TYPE_FACTORY.createSqlType(SqlTypeName.ANY, nullable), -1);
@@ -200,10 +199,10 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
 //        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("timestamp")) {
 //        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
-          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+        return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("date")) {
-//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
-          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//      return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+        return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("time")) {
 //        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
           return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
