@@ -297,10 +297,11 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       if (!(aggregationBuilders.getFirst() instanceof CompositeAggregationBuilder)) {
         return null;
       }
-      List<String> collationNames = getCollationNames(sort.getCollation().getFieldCollations());
-      if (!isAnyCollationNameInAggregators(collationNames)) {
-        return null;
-      }
+// FIXME: Needs Optimised Index setting check
+//      List<String> collationNames = getCollationNames(sort.getCollation().getFieldCollations());
+//      if (!isAllCollationNamesEqualAggregators(collationNames)) {
+//        return null;
+//      }
       CalciteLogicalIndexScan newScan = copyWithNewTraitSet(sort.getTraitSet());
       newScan
           .pushDownContext

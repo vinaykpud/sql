@@ -120,7 +120,7 @@ public class AggPushDownAction implements OSRequestBuilderAction {
       AggregationBuilder aggregationBuilder = null;
       if (composite.sources().size() == 1) {
         if (composite.sources().get(0) instanceof TermsValuesSourceBuilder terms
-            && !terms.missingBucket()) {
+            /*&& !terms.missingBucket()*/) { // FIXME: Needs Optimised Index setting check) {
           aggregationBuilder = buildTermsAggregationBuilder(terms, bucketOrder, composite.size());
           attachSubAggregations(composite.getSubAggregations(), path, aggregationBuilder);
         } else if (composite.sources().get(0)
