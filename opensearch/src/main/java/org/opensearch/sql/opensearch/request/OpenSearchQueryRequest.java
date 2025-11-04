@@ -103,6 +103,8 @@ import java.util.stream.Collectors;
 public class OpenSearchQueryRequest implements OpenSearchRequest {
   private static final Logger LOG = LogManager.getLogger();
 
+  private static final SimpleExtension.ExtensionCollection EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION;
+
   /** {@link OpenSearchRequest.IndexName}. */
   private final IndexName indexName;
 
@@ -425,8 +427,20 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // Substrait conversion
         // RelRoot represents the root of a relational query tree with metadata
         RelRoot root = RelRoot.of(relNode, SqlKind.SELECT);
-        Rel substraitRel = createVisitor(relNode).apply(root.rel);
-        Plan.Root substraitRoot = Plan.Root.builder().input(substraitRel).build();
+
+        // Convert using custom visitor to handle EXTRACT and other custom functions
+        SubstraitRelVisitor visitor = createVisitor(relNode);
+        Rel substraitRel = visitor.apply(root.rel);
+
+        // Build Plan.Root with proper field names from RelRoot
+        // otherwise the output column names won't match the query
+        List<String> fieldNames = root.fields.stream()
+            .map(field -> field.getValue())
+            .collect(Collectors.toList());
+        Plan.Root substraitRoot = Plan.Root.builder()
+            .input(substraitRel)
+            .names(fieldNames)
+            .build();
 
         long endTimeSubstraitConvert = System.nanoTime();
         // Plan contains one or more roots (query entry points) and shared extensions
@@ -456,7 +470,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 SqlStdOperatorTable.EXTRACT, "EXTRACT"
         ));
 
-        SimpleExtension.ExtensionCollection EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION;
         RelDataTypeFactory typeFactory = relNode.getCluster().getTypeFactory();
         AggregateFunctionConverter aggConverter = new AggregateFunctionConverter(
                 EXTENSIONS.aggregateFunctions(),
