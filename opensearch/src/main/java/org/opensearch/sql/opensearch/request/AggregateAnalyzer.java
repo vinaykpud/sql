@@ -208,11 +208,14 @@ public class AggregateAnalyzer {
 
       // both count() and count(FIELD) can apply doc_count optimization in non-bucket aggregation,
       // but only count() can apply doc_count optimization in bucket aggregation.
-      boolean countAllOnly = !groupList.isEmpty();
-      Pair<List<String>, Builder> countAggNameAndBuilderPair =
-          removeCountAggregationBuilders(metricBuilder, countAllOnly);
-      Builder newMetricBuilder = countAggNameAndBuilderPair.getRight();
-      List<String> countAggNames = countAggNameAndBuilderPair.getLeft();
+// FIXME : Put a check using Optimised index setting
+// This is removed to ensure SQL plugin always sends a count() sub agg in the request instead of
+// relying on the doc_count for the result.
+//      boolean countAllOnly = !groupList.isEmpty();
+//      Pair<List<String>, Builder> countAggNameAndBuilderPair =
+//          removeCountAggregationBuilders(metricBuilder, countAllOnly);
+      Builder newMetricBuilder = metricBuilder;
+      List<String> countAggNames = Collections.emptyList();
 
       // No group-by clause -- no parent aggregations are attached:
       //   - stats count()
