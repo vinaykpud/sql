@@ -414,6 +414,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
+        // Adds a count aggregate if absent for Coordinator merging using doc_count to work
+        relNode = ensureCountAggregate(relNode);
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
         // Support to convert span
@@ -422,8 +424,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertILike(relNode);
         // Support to convert Extract
         relNode = convertExtract(relNode);
-        // Adds a count aggregate if absent for Coordinator merging using doc_count to work
-        relNode = ensureCountAggregate(relNode);
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
