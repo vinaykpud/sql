@@ -105,6 +105,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
   private static final SimpleExtension.ExtensionCollection EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION;
 
+  public static final String INJECTED_COUNT_AGGREGATE_NAME = "agg_for_doc_count";
+
   /** {@link OpenSearchRequest.IndexName}. */
   private final IndexName indexName;
 
@@ -420,6 +422,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertILike(relNode);
         // Support to convert Extract
         relNode = convertExtract(relNode);
+        // Adds a count aggregate if absent for Coordinator merging using doc_count to work
+        relNode = ensureCountAggregate(relNode);
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
@@ -884,6 +888,68 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 }
             }
         });
+    }
+
+    private static RelNode ensureCountAggregate(RelNode relNode) {
+        return relNode.accept(
+                new RelShuttleImpl() {
+                    @Override
+                    public RelNode visit(LogicalAggregate aggregate) {
+                        boolean hasCount =
+                                aggregate.getAggCallList().stream()
+                                        .anyMatch(call -> call.getAggregation().getKind() == SqlKind.COUNT);
+
+                        if (hasCount) {
+                            return super.visit(aggregate);
+                        }
+
+                        RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                        builder.push(aggregate.getInput());
+
+                        List<RelBuilder.AggCall> aggCalls = new ArrayList<>();
+                        for (AggregateCall call : aggregate.getAggCallList()) {
+                            aggCalls.add(
+                                    builder
+                                            .aggregateCall(
+                                                    call.getAggregation(),
+                                                    call.getArgList().stream()
+                                                            .map(builder::field)
+                                                            .collect(Collectors.toList()))
+                                            .distinct(call.isDistinct())
+                                            .as(call.getName()));
+                        }
+                        aggCalls.add(builder.count(false, INJECTED_COUNT_AGGREGATE_NAME));
+
+                        builder.aggregate(builder.groupKey(aggregate.getGroupSet()), aggCalls);
+                        return builder.build();
+                    }
+
+                    @Override
+                    public RelNode visit(LogicalProject project) {
+                        RelNode input = project.getInput().accept(this);
+                        if (input == project.getInput()) {
+                            return project;
+                        }
+
+                        if (input instanceof LogicalAggregate agg) {
+                            int countIndex = agg.getGroupCount() + agg.getAggCallList().size() - 1;
+                            RexBuilder rexBuilder = project.getCluster().getRexBuilder();
+
+                            List<RexNode> newProjects = new ArrayList<>(project.getProjects());
+                            newProjects.add(
+                                    rexBuilder.makeInputRef(
+                                            agg.getRowType().getFieldList().get(countIndex).getType(), countIndex));
+
+                            List<String> newNames = new ArrayList<>(project.getRowType().getFieldNames());
+                            newNames.add(INJECTED_COUNT_AGGREGATE_NAME);
+
+                            return LogicalProject.create(input, project.getHints(), newProjects, newNames);
+                        }
+
+                        return LogicalProject.create(
+                                input, project.getHints(), project.getProjects(), project.getRowType());
+                    }
+                });
     }
 
 }
