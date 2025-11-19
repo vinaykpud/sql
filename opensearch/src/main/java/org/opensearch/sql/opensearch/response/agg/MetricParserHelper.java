@@ -52,10 +52,6 @@ public class MetricParserHelper {
     Map<String, Object> mergeMap = new LinkedHashMap<>();
     for (Aggregation aggregation : aggregations) {
       MetricParser parser = metricParserMap.get(aggregation.getName());
-      if (OpenSearchQueryRequest.INJECTED_COUNT_AGGREGATE_NAME.equals(aggregation.getName())) {
-          // Skip _count field added for Substrait/DataFusion compatibility
-          continue;
-      }
       if (parser == null) {
         throw new RuntimeException(
             StringUtils.format(
