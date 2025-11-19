@@ -417,6 +417,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = ensureCountAggregate(relNode);
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
         relNode = convertAvgToSumCount(relNode);
+        // Support to convert COUNT(DISTINCT) to APPROX_COUNT_DISTINCT for partial results
+        relNode = convertCountDistinctToApprox(relNode);
         // Support to convert span
         relNode = convertSpan(relNode);
         // Support to convert ILIKE
@@ -770,6 +772,50 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     return rexBuilder.makeCall(SqlStdOperatorTable.LIKE, upperField, upperPattern);
                 }
                 return iLikeCall;
+            }
+        });
+    }
+
+    private static RelNode convertCountDistinctToApprox(RelNode relNode) {
+        return relNode.accept(new RelShuttleImpl() {
+            @Override
+            public RelNode visit(LogicalAggregate aggregate) {
+                RelNode newInput = aggregate.getInput().accept(this);
+
+                boolean hasCountDistinct = aggregate.getAggCallList().stream()
+                    .anyMatch(call -> call.getAggregation().getKind() == SqlKind.COUNT && call.isDistinct());
+
+                if (!hasCountDistinct) {
+                    return aggregate.copy(aggregate.getTraitSet(), Collections.singletonList(newInput));
+                }
+
+                List<AggregateCall> newAggCalls = new ArrayList<>();
+                for (AggregateCall aggCall : aggregate.getAggCallList()) {
+                    if (aggCall.getAggregation().getKind() == SqlKind.COUNT && aggCall.isDistinct()) {
+                        // Replace COUNT(DISTINCT x) with APPROX_COUNT_DISTINCT(x)
+                        AggregateCall newCall = AggregateCall.create(
+                            SqlStdOperatorTable.APPROX_COUNT_DISTINCT ,
+                            false, // not distinct anymore since APPROX_COUNT_DISTINCT handles it
+                            aggCall.isApproximate(),
+                            aggCall.getArgList(),
+                            aggCall.filterArg,
+                            aggCall.collation,
+                            aggCall.getType(),
+                            aggCall.getName()
+                        );
+                        newAggCalls.add(newCall);
+                    } else {
+                        newAggCalls.add(aggCall);
+                    }
+                }
+
+                return LogicalAggregate.create(
+                    newInput,
+                    aggregate.getHints(),
+                    aggregate.getGroupSet(),
+                    aggregate.getGroupSets(),
+                    newAggCalls
+                );
             }
         });
     }
