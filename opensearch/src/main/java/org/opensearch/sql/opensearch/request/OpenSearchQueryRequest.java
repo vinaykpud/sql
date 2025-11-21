@@ -71,6 +71,7 @@ import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
 import org.opensearch.sql.ast.tree.Rex;
+import org.opensearch.sql.calcite.type.ExprSqlType;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.calcite.type.AbstractExprRelDataType;
@@ -92,6 +93,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.TIMESTAMP;
 import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
 import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
 import static org.opensearch.search.sort.SortOrder.ASC;
@@ -440,14 +442,12 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     @Nullable
                     @Override
                     public Type toSubstrait(RelDataType relDataType) {
-                        String fullTypeString = relDataType.getFullTypeString();
-                        Class<? extends RelDataType> aClass = relDataType.getClass();
-                        System.out.println(aClass);
-                        System.out.println(relDataType);
-                        SqlTypeName sqlTypeName = relDataType.getSqlTypeName();
-                        if (fullTypeString.equals("EXPR_TIMESTAMP VARCHAR")) {
-                            TypeCreator creator = Type.withNullability(relDataType.isNullable());
-                            return creator.precisionTimestamp(3);
+                        if (relDataType.getClass().equals(ExprSqlType.class)) {
+                            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
+                            if (exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP)) {
+                                TypeCreator creator = Type.withNullability(relDataType.isNullable());
+                                return creator.precisionTimestamp(3);
+                            }
                         }
                         return null;
                     }
