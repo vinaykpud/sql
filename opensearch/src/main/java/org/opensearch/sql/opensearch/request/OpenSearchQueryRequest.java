@@ -23,6 +23,7 @@ import io.substrait.extension.SimpleExtension;
 import io.substrait.isthmus.ImmutableFeatureBoard;
 import io.substrait.isthmus.SubstraitRelVisitor;
 import io.substrait.isthmus.TypeConverter;
+import io.substrait.isthmus.UserTypeMapper;
 import io.substrait.isthmus.expression.AggregateFunctionConverter;
 import io.substrait.isthmus.expression.FunctionMappings;
 import io.substrait.isthmus.expression.ScalarFunctionConverter;
@@ -32,6 +33,8 @@ import io.substrait.plan.PlanProtoConverter;
 import io.substrait.relation.NamedScan;
 import io.substrait.relation.Rel;
 import io.substrait.relation.RelCopyOnWriteVisitor;
+import io.substrait.type.Type;
+import io.substrait.type.TypeCreator;
 import io.substrait.util.EmptyVisitationContext;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -48,14 +51,19 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.fun.SqlCastFunction;
 import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.type.BasicSqlType;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
@@ -63,6 +71,7 @@ import org.apache.calcite.util.Pair;
 import org.opensearch.action.search.SearchRequest;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.action.search.SearchScrollRequest;
+import org.opensearch.common.Nullable;
 import org.opensearch.common.settings.Settings;
 import org.opensearch.common.unit.TimeValue;
 import org.opensearch.common.xcontent.XContentType;
@@ -78,9 +87,13 @@ import org.opensearch.search.aggregations.bucket.composite.InternalComposite;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.sql.ast.tree.Rex;
+import org.opensearch.sql.calcite.type.ExprSqlType;
 import org.opensearch.search.sort.ShardDocSortBuilder;
 import org.opensearch.search.sort.SortBuilders;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
+import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
+import org.opensearch.sql.calcite.type.AbstractExprRelDataType;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
@@ -90,6 +103,8 @@ import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
 import java.util.HashMap;
 import java.util.stream.Collectors;
 
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.TIMESTAMP;
 import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
 import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
 import static org.opensearch.search.sort.SortOrder.ASC;
@@ -429,6 +444,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertILike(relNode);
         // Support to convert Extract
         relNode = convertExtract(relNode);
+        // Convert timestamp UDTs to SQL TIMESTAMP types
+        relNode = convertTimestamp(relNode);
 
         LOG.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
@@ -479,6 +496,25 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 SqlStdOperatorTable.EXTRACT, "EXTRACT"
         ));
 
+        TypeConverter typeConverter = new TypeConverter(
+                new UserTypeMapper() {
+                    @Nullable
+                    @Override
+                    public Type toSubstrait(RelDataType relDataType) {
+                        if(isTimeStampUDT(relDataType)) {
+                            TypeCreator creator = Type.withNullability(relDataType.isNullable());
+                            return creator.precisionTimestamp(3);
+                        }
+                        return null;
+                    }
+
+                    @Nullable
+                    @Override
+                    public RelDataType toCalcite(Type.UserDefined type) {
+                        return null;
+                    }
+                });
+
         RelDataTypeFactory typeFactory = relNode.getCluster().getTypeFactory();
         AggregateFunctionConverter aggConverter = new AggregateFunctionConverter(
                 EXTENSIONS.aggregateFunctions(),
@@ -488,7 +524,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 EXTENSIONS.scalarFunctions(),
                 customSigs,
                 typeFactory,
-                TypeConverter.DEFAULT
+                typeConverter
         );
         WindowFunctionConverter windowConverter = new WindowFunctionConverter(
                 EXTENSIONS.windowFunctions(),
@@ -500,7 +536,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 scalarConverter,
                 aggConverter,
                 windowConverter,
-                TypeConverter.DEFAULT,
+                typeConverter,
                 ImmutableFeatureBoard.builder().build());
     }
 
@@ -935,6 +971,47 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                         // Default fallback to YEAR if unknown
                         return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
                 }
+            }
+        });
+    }
+
+    private static RexNode updateTimeStampFunction(RexNode rexNode, RexBuilder rexBuilder) {
+        if(rexNode instanceof RexCall rexCall) {
+            List<RexNode> originalOperands = rexCall.getOperands();
+            List<RexNode> updatedOperands = new ArrayList<>();
+            for (RexNode operand : originalOperands) {
+                if(operand instanceof RexCall timestampCall && isTimeStampUDT(timestampCall.getType())) {
+                    org.apache.calcite.rel.type.RelDataType timestampType = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.TIMESTAMP, 3);
+                    updatedOperands.add(rexBuilder.makeCall(timestampCall.pos, timestampType, SAFE_CAST, timestampCall.getOperands()));
+                } else if(operand instanceof RexInputRef timeStampInput && isTimeStampUDT(timeStampInput.getType())) {
+                    org.apache.calcite.rel.type.RelDataType timestampType = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.TIMESTAMP, 3);
+                    updatedOperands.add(rexBuilder.makeInputRef(timestampType,  timeStampInput.getIndex()));
+                } else {
+                    updatedOperands.add(updateTimeStampFunction(operand, rexBuilder));
+                }
+            }
+            return rexBuilder.makeCall(rexCall.pos, rexCall.type, rexCall.getOperator(), updatedOperands);
+        }
+        return rexNode;
+    }
+
+    private static boolean isTimeStampUDT(RelDataType relDataType) {
+        if (relDataType.getClass().equals(ExprSqlType.class)) {
+            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
+            return exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP);
+        }
+        return false;
+    }
+
+    private static RelNode convertTimestamp(RelNode relNode) {
+        return relNode.accept(new RelShuttleImpl() {
+
+            @Override
+            public RelNode visit(LogicalFilter logicalFilter) {
+                RelNode newInput = logicalFilter.getInput().accept(this);
+                RexNode originalCondition = logicalFilter.getCondition();
+                RexNode updatedCondition = updateTimeStampFunction(originalCondition, logicalFilter.getCluster().getRexBuilder());
+                return LogicalFilter.create(newInput, updatedCondition);
             }
         });
     }
