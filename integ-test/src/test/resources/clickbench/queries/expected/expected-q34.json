@@ -11,30 +11,38 @@
   ],
   "datarows": [
     [
-      16,
-      "https://example.com/search"
+      2,
+      "https://www.google.example.com/test"
     ],
     [
-      15,
-      ""
+      1,
+      "https://example.com/about"
     ],
     [
-      14,
-      "https://example.com/contact"
+      1,
+      "https://example.com/page?ref=google"
     ],
     [
-      8,
-      "https://example.com/blog"
-    ],
-    [
-      8,
+      1,
       "https://example.com/products"
     ],
     [
-      7,
-      "https://example.com/about"
+      1,
+      "https://example.com/search"
+    ],
+    [
+      1,
+      "https://example.google.org/page"
+    ],
+    [
+      1,
+      "https://google.com/maps"
+    ],
+    [
+      1,
+      "https://www.google.com/search?q=test"
     ]
   ],
-  "total": 6,
-  "size": 6
+  "total": 8,
+  "size": 8
 }

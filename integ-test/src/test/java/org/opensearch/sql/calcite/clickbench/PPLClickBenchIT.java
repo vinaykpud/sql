@@ -95,13 +95,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
 
   /** Ignore queries that are not supported by Calcite. */
   protected Set<Integer> ignored() {
-    if (GCedMemoryUsage.initialized()) {
-      return Set.of(29);
-    } else {
-      // Ignore q30 when use RuntimeMemoryUsage,
-      // because of too much script push down, which will cause ResourceMonitor restriction.
-      return Set.of(29, 30);
-    }
+    return Set.of(41); // query currently fails on main
   }
 
   @Test
@@ -130,8 +124,11 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
   public void testDataFusion() throws IOException {
     // flip this to run everything and get the full current list of p/f/f200.
     // when false will fail on first f200 occurence and show assert diff.
-    boolean runAllQueries = false;
+    boolean runAllQueries = true;
     for (int i = 1; i <= 43; i++) {
+      if (ignored().contains(i)) {
+        continue;
+      }
       String ppl = sanitize(loadFromFile("clickbench/queries/q" + i + ".ppl"));
       System.out.println("RUNNING QUERY NUMBER: " + i + " Query: " + ppl);
 

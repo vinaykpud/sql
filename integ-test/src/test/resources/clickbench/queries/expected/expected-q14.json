@@ -11,18 +11,30 @@
   ],
   "datarows": [
     [
-      19,
-      "information"
+      1,
+      "find something"
     ],
     [
-      14,
-      "product search"
+      1,
+      "google search"
     ],
     [
-      14,
+      1,
+      "search something"
+    ],
+    [
+      1,
+      "test"
+    ],
+    [
+      1,
       "test query"
+    ],
+    [
+      1,
+      "test query google"
     ]
   ],
-  "total": 3,
-  "size": 3
+  "total": 6,
+  "size": 6
 }

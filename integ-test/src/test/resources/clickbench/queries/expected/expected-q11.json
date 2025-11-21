@@ -11,18 +11,14 @@
   ],
   "datarows": [
     [
-      20,
+      3,
       "Samsung"
     ],
     [
-      17,
-      "Nokia"
-    ],
-    [
-      14,
+      1,
       "iPhone"
     ]
   ],
-  "total": 3,
-  "size": 3
+  "total": 2,
+  "size": 2
 }

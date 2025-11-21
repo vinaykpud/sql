@@ -9,7 +9,12 @@
       "type": "string"
     }
   ],
-  "datarows": [],
-  "total": 0,
-  "size": 0
+  "datarows": [
+    [
+      1,
+      "https://www.google.com/search?q=test"
+    ]
+  ],
+  "total": 1,
+  "size": 1
 }

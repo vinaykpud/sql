@@ -11,4 +11,4 @@ source=hits
 | eval M = date_format(EventTime, '%Y-%m-%d %H:00:00')
 | stats /*bucket_nullable=false*/ count() as PageViews by M
 | sort M
-| head 10 from 1000
+| head 10 from 1

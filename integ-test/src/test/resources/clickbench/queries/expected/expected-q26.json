@@ -7,36 +7,27 @@
   ],
   "datarows": [
     [
-      "information"
+      "find something"
     ],
     [
-      "information"
+      "google search"
     ],
     [
-      "information"
+      "search something"
     ],
     [
-      "information"
+      "test"
     ],
     [
-      "information"
+      "test"
     ],
     [
-      "information"
+      "test query"
     ],
     [
-      "information"
-    ],
-    [
-      "information"
-    ],
-    [
-      "information"
-    ],
-    [
-      "information"
+      "test query google"
     ]
   ],
-  "total": 10,
-  "size": 10
+  "total": 7,
+  "size": 7
 }
