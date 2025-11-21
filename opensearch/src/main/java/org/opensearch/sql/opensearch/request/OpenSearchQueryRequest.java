@@ -442,12 +442,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     @Nullable
                     @Override
                     public Type toSubstrait(RelDataType relDataType) {
-                        if (relDataType.getClass().equals(ExprSqlType.class)) {
-                            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
-                            if (exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP)) {
-                                TypeCreator creator = Type.withNullability(relDataType.isNullable());
-                                return creator.precisionTimestamp(3);
-                            }
+                        if(isTimeStampUDT(relDataType)) {
+                            TypeCreator creator = Type.withNullability(relDataType.isNullable());
+                            return creator.precisionTimestamp(3);
                         }
                         return null;
                     }
@@ -875,20 +872,19 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         });
     }
 
-    private static RexNode updateTimeStampFunction(RexNode rexNode, org.apache.calcite.rel.type.RelDataType inputRowType, RexBuilder rexBuilder) {
-        if(rexNode instanceof RexCall) {
-            RexCall rexCall = (RexCall) rexNode;
+    private static RexNode updateTimeStampFunction(RexNode rexNode, RexBuilder rexBuilder) {
+        if(rexNode instanceof RexCall rexCall) {
             List<RexNode> originalOperands = rexCall.getOperands();
             List<RexNode> updatedOperands = new ArrayList<>();
             for (RexNode operand : originalOperands) {
-                if(operand instanceof RexCall timestampCall && isTimestampFunction((RexCall) operand)) {
+                if(operand instanceof RexCall timestampCall && isTimeStampUDT(timestampCall.getType())) {
                     org.apache.calcite.rel.type.RelDataType timestampType = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.TIMESTAMP, 3);
                     updatedOperands.add(rexBuilder.makeCall(timestampCall.pos, timestampType, SAFE_CAST, timestampCall.getOperands()));
-                } else if(operand instanceof RexInputRef timeStampInput) {
+                } else if(operand instanceof RexInputRef timeStampInput && isTimeStampUDT(timeStampInput.getType())) {
                     org.apache.calcite.rel.type.RelDataType timestampType = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.TIMESTAMP, 3);
                     updatedOperands.add(rexBuilder.makeInputRef(timestampType,  timeStampInput.getIndex()));
                 } else {
-                    updatedOperands.add(operand);
+                    updatedOperands.add(updateTimeStampFunction(operand, rexBuilder));
                 }
             }
             return rexBuilder.makeCall(rexCall.pos, rexCall.type, rexCall.getOperator(), updatedOperands);
@@ -896,8 +892,12 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         return rexNode;
     }
 
-    private static boolean isTimestampFunction(RexCall rexCall) {
-        return rexCall.getOperator().getName().equalsIgnoreCase("TIMESTAMP");
+    private static boolean isTimeStampUDT(RelDataType relDataType) {
+        if (relDataType.getClass().equals(ExprSqlType.class)) {
+            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
+            return exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP);
+        }
+        return false;
     }
 
     private static RelNode convertTimestamp(RelNode relNode) {
@@ -907,7 +907,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             public RelNode visit(LogicalFilter logicalFilter) {
                 RelNode newInput = logicalFilter.getInput().accept(this);
                 RexNode originalCondition = logicalFilter.getCondition();
-                RexNode updatedCondition = updateTimeStampFunction(originalCondition, newInput.getRowType(), logicalFilter.getCluster().getRexBuilder());
+                RexNode updatedCondition = updateTimeStampFunction(originalCondition, logicalFilter.getCluster().getRexBuilder());
                 return LogicalFilter.create(newInput, updatedCondition);
             }
         });
