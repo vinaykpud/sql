@@ -1,0 +1,42 @@
+{
+  "schema": [
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      "test query"
+    ],
+    [
+      "product search"
+    ],
+    [
+      "product search"
+    ],
+    [
+      "information"
+    ],
+    [
+      "product search"
+    ],
+    [
+      "product search"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "test query"
+    ],
+    [
+      "information"
+    ]
+  ],
+  "total": 10,
+  "size": 10
+}

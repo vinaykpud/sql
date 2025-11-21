@@ -1,0 +1,19 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "WindowClientWidth",
+      "type": "smallint"
+    },
+    {
+      "name": "WindowClientHeight",
+      "type": "smallint"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

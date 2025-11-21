@@ -1,0 +1,19 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "URLHash",
+      "type": "bigint"
+    },
+    {
+      "name": "EventDate",
+      "type": "timestamp"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

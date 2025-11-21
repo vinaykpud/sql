@@ -1,0 +1,15 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "M",
+      "type": "string"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

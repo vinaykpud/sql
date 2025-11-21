@@ -1,0 +1,31 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "TraficSourceID",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "AdvEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "Src",
+      "type": "string"
+    },
+    {
+      "name": "Dst",
+      "type": "string"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

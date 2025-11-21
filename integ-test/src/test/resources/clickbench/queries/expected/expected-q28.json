@@ -1,0 +1,19 @@
+{
+  "schema": [
+    {
+      "name": "l",
+      "type": "double"
+    },
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "CounterID",
+      "type": "int"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

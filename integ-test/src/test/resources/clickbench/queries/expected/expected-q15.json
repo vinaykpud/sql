@@ -1,0 +1,70 @@
+{
+  "schema": [
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "SearchEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      6,
+      4,
+      "information"
+    ],
+    [
+      4,
+      1,
+      "product search"
+    ],
+    [
+      4,
+      4,
+      "product search"
+    ],
+    [
+      3,
+      0,
+      "information"
+    ],
+    [
+      3,
+      0,
+      "test query"
+    ],
+    [
+      3,
+      1,
+      "information"
+    ],
+    [
+      3,
+      2,
+      "test query"
+    ],
+    [
+      3,
+      3,
+      "product search"
+    ],
+    [
+      3,
+      4,
+      "test query"
+    ],
+    [
+      3,
+      5,
+      "information"
+    ]
+  ],
+  "total": 10,
+  "size": 10
+}

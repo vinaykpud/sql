@@ -1,0 +1,23 @@
+{
+  "schema": [
+    {
+      "name": "l",
+      "type": "double"
+    },
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "min(Referer)",
+      "type": "string"
+    },
+    {
+      "name": "k",
+      "type": "string"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

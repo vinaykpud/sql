@@ -1,0 +1,42 @@
+{
+  "schema": [
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ],
+    [
+      "information"
+    ]
+  ],
+  "total": 10,
+  "size": 10
+}

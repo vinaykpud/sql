@@ -1,0 +1,28 @@
+{
+  "schema": [
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      19,
+      "information"
+    ],
+    [
+      14,
+      "product search"
+    ],
+    [
+      14,
+      "test query"
+    ]
+  ],
+  "total": 3,
+  "size": 3
+}

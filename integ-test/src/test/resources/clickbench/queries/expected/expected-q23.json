@@ -1,0 +1,19 @@
+{
+  "schema": [
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "dc(UserID)",
+      "type": "bigint"
+    },
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

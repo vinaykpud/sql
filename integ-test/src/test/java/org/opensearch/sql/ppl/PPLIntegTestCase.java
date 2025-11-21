@@ -55,13 +55,13 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
     return jsonify(text);
   }
 
-  private JSONObject executeQuery(MapBuilder<Integer, Boolean> resultMap, Integer key, String ppl) throws IOException {
+  private String executeQuery(MapBuilder<Integer, Boolean> resultMap, Integer key, String ppl) throws IOException {
     Response response;
     try {
       response = client().performRequest(buildRequest(ppl, QUERY_API_ENDPOINT));
     } catch (IOException e) {
       resultMap.put(key, false);
-      return new JSONObject();
+      return "";
     }
     int statusCode = response.getStatusLine().getStatusCode();
     if (statusCode != 200) {
@@ -70,7 +70,8 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
       resultMap.put(key, true);
     }
     String responseBody = getResponseBody(response, true);
-    return jsonify(responseBody);
+    logger.info("Response {}", responseBody);
+    return responseBody;
   }
 
   protected String executeQueryToString(String query) throws IOException {
@@ -140,12 +141,13 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
     builder.put(query, duration);
   }
 
-  protected void runQuery(MapBuilder<String, Long> builder, MapBuilder<Integer, Boolean> resultMap, Integer queryNum, String ppl)
+  protected String runQuery(MapBuilder<String, Long> builder, MapBuilder<Integer, Boolean> resultMap, Integer queryNum, String ppl)
           throws IOException {
     long start = System.currentTimeMillis();
-    executeQuery(resultMap, queryNum, ppl);
+    String result = executeQuery(resultMap, queryNum, ppl);
     long duration = System.currentTimeMillis() - start;
     builder.put("q" + queryNum, duration);
+    return result;
   }
 
   protected void failWithMessage(String query, String message) {

@@ -1,0 +1,427 @@
+{
+  "schema": [
+    {
+      "name": "EventDate",
+      "type": "timestamp"
+    },
+    {
+      "name": "URLRegionID",
+      "type": "int"
+    },
+    {
+      "name": "HasGCLID",
+      "type": "smallint"
+    },
+    {
+      "name": "Income",
+      "type": "smallint"
+    },
+    {
+      "name": "Interests",
+      "type": "smallint"
+    },
+    {
+      "name": "Robotness",
+      "type": "smallint"
+    },
+    {
+      "name": "BrowserLanguage",
+      "type": "string"
+    },
+    {
+      "name": "CounterClass",
+      "type": "smallint"
+    },
+    {
+      "name": "BrowserCountry",
+      "type": "string"
+    },
+    {
+      "name": "OriginalURL",
+      "type": "string"
+    },
+    {
+      "name": "ClientTimeZone",
+      "type": "smallint"
+    },
+    {
+      "name": "RefererHash",
+      "type": "bigint"
+    },
+    {
+      "name": "TraficSourceID",
+      "type": "smallint"
+    },
+    {
+      "name": "HitColor",
+      "type": "string"
+    },
+    {
+      "name": "RefererRegionID",
+      "type": "int"
+    },
+    {
+      "name": "URLCategoryID",
+      "type": "smallint"
+    },
+    {
+      "name": "LocalEventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "EventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "UTMTerm",
+      "type": "string"
+    },
+    {
+      "name": "AdvEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "UserAgentMinor",
+      "type": "string"
+    },
+    {
+      "name": "UserAgentMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "RemoteIP",
+      "type": "int"
+    },
+    {
+      "name": "Sex",
+      "type": "smallint"
+    },
+    {
+      "name": "JavaEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "URLHash",
+      "type": "bigint"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    },
+    {
+      "name": "ParamOrderID",
+      "type": "string"
+    },
+    {
+      "name": "OpenstatSourceID",
+      "type": "string"
+    },
+    {
+      "name": "HTTPError",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion3",
+      "type": "int"
+    },
+    {
+      "name": "MobilePhoneModel",
+      "type": "string"
+    },
+    {
+      "name": "SilverlightVersion4",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion1",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion2",
+      "type": "smallint"
+    },
+    {
+      "name": "IsDownload",
+      "type": "smallint"
+    },
+    {
+      "name": "IsParameter",
+      "type": "smallint"
+    },
+    {
+      "name": "CLID",
+      "type": "int"
+    },
+    {
+      "name": "FlashMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "FlashMinor",
+      "type": "smallint"
+    },
+    {
+      "name": "UTMMedium",
+      "type": "string"
+    },
+    {
+      "name": "WatchID",
+      "type": "bigint"
+    },
+    {
+      "name": "DontCountHits",
+      "type": "smallint"
+    },
+    {
+      "name": "CookieEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "HID",
+      "type": "int"
+    },
+    {
+      "name": "SocialAction",
+      "type": "string"
+    },
+    {
+      "name": "WindowName",
+      "type": "int"
+    },
+    {
+      "name": "ConnectTiming",
+      "type": "int"
+    },
+    {
+      "name": "PageCharset",
+      "type": "string"
+    },
+    {
+      "name": "IsLink",
+      "type": "smallint"
+    },
+    {
+      "name": "IsArtifical",
+      "type": "smallint"
+    },
+    {
+      "name": "JavascriptEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "ClientEventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "DNSTiming",
+      "type": "int"
+    },
+    {
+      "name": "CodeVersion",
+      "type": "int"
+    },
+    {
+      "name": "ResponseEndTiming",
+      "type": "int"
+    },
+    {
+      "name": "FUniqID",
+      "type": "bigint"
+    },
+    {
+      "name": "WindowClientHeight",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenstatServiceName",
+      "type": "string"
+    },
+    {
+      "name": "UTMContent",
+      "type": "string"
+    },
+    {
+      "name": "HistoryLength",
+      "type": "smallint"
+    },
+    {
+      "name": "IsOldCounter",
+      "type": "smallint"
+    },
+    {
+      "name": "MobilePhone",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    },
+    {
+      "name": "FlashMinor2",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "IsEvent",
+      "type": "smallint"
+    },
+    {
+      "name": "UTMSource",
+      "type": "string"
+    },
+    {
+      "name": "RegionID",
+      "type": "int"
+    },
+    {
+      "name": "OpenstatAdID",
+      "type": "string"
+    },
+    {
+      "name": "UTMCampaign",
+      "type": "string"
+    },
+    {
+      "name": "GoodEvent",
+      "type": "smallint"
+    },
+    {
+      "name": "IsRefresh",
+      "type": "smallint"
+    },
+    {
+      "name": "ParamCurrency",
+      "type": "string"
+    },
+    {
+      "name": "Params",
+      "type": "string"
+    },
+    {
+      "name": "ResolutionHeight",
+      "type": "smallint"
+    },
+    {
+      "name": "ClientIP",
+      "type": "int"
+    },
+    {
+      "name": "FromTag",
+      "type": "string"
+    },
+    {
+      "name": "ParamCurrencyID",
+      "type": "smallint"
+    },
+    {
+      "name": "ResponseStartTiming",
+      "type": "int"
+    },
+    {
+      "name": "ResolutionWidth",
+      "type": "smallint"
+    },
+    {
+      "name": "SendTiming",
+      "type": "int"
+    },
+    {
+      "name": "RefererCategoryID",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenstatCampaignID",
+      "type": "string"
+    },
+    {
+      "name": "UserID",
+      "type": "bigint"
+    },
+    {
+      "name": "WithHash",
+      "type": "smallint"
+    },
+    {
+      "name": "UserAgent",
+      "type": "smallint"
+    },
+    {
+      "name": "ParamPrice",
+      "type": "bigint"
+    },
+    {
+      "name": "ResolutionDepth",
+      "type": "smallint"
+    },
+    {
+      "name": "IsMobile",
+      "type": "smallint"
+    },
+    {
+      "name": "Age",
+      "type": "smallint"
+    },
+    {
+      "name": "SocialSourceNetworkID",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenerName",
+      "type": "int"
+    },
+    {
+      "name": "OS",
+      "type": "smallint"
+    },
+    {
+      "name": "IsNotBounce",
+      "type": "smallint"
+    },
+    {
+      "name": "Referer",
+      "type": "string"
+    },
+    {
+      "name": "NetMinor",
+      "type": "smallint"
+    },
+    {
+      "name": "Title",
+      "type": "string"
+    },
+    {
+      "name": "NetMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "IPNetworkID",
+      "type": "int"
+    },
+    {
+      "name": "FetchTiming",
+      "type": "int"
+    },
+    {
+      "name": "SocialNetwork",
+      "type": "string"
+    },
+    {
+      "name": "SocialSourcePage",
+      "type": "string"
+    },
+    {
+      "name": "CounterID",
+      "type": "int"
+    },
+    {
+      "name": "WindowClientWidth",
+      "type": "smallint"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

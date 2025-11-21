@@ -1,0 +1,11 @@
+{
+  "schema": [
+    {
+      "name": "UserID",
+      "type": "bigint"
+    }
+  ],
+  "datarows": [],
+  "total": 0,
+  "size": 0
+}

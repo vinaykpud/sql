@@ -1,0 +1,40 @@
+{
+  "schema": [
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      16,
+      "https://example.com/search"
+    ],
+    [
+      15,
+      ""
+    ],
+    [
+      14,
+      "https://example.com/contact"
+    ],
+    [
+      8,
+      "https://example.com/blog"
+    ],
+    [
+      8,
+      "https://example.com/products"
+    ],
+    [
+      7,
+      "https://example.com/about"
+    ]
+  ],
+  "total": 6,
+  "size": 6
+}
