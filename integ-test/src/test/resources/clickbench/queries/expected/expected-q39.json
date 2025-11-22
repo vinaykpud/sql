@@ -1,0 +1,20 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      1,
+      "https://www.google.com/search?q=test"
+    ]
+  ],
+  "total": 1,
+  "size": 1
+}

@@ -1,0 +1,551 @@
+-- File: q1.ppl
+/*
+SELECT COUNT(*) FROM hits;
+*/
+source=hits | stats count()
+
+-- File: q10.ppl
+/*
+SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
+FROM hits GROUP BY RegionID ORDER BY c DESC LIMIT 10;
+*/
+source=hits s
+| stats bucket_nullable=false sum(AdvEngineID), count() as c, avg(ResolutionWidth), dc(UserID) by RegionID
+| sort - c
+| head 10
+
+
+-- File: q11.ppl
+/*
+SELECT MobilePhoneModel, COUNT(DISTINCT UserID) AS u
+FROM hits WHERE MobilePhoneModel <> ''
+GROUP BY MobilePhoneModel ORDER BY u DESC LIMIT 10;
+*/
+source=hits
+| where MobilePhoneModel != ''
+| stats bucket_nullable=false dc(UserID) as u by MobilePhoneModel
+| sort - u
+| head 10
+
+
+-- File: q12.ppl
+/*
+SELECT MobilePhone, MobilePhoneModel, COUNT(DISTINCT UserID) AS u
+FROM hits WHERE MobilePhoneModel <> ''
+GROUP BY MobilePhone, MobilePhoneModel ORDER BY u DESC LIMIT 10;
+*/
+source=hits
+| where MobilePhoneModel != ''
+| stats bucket_nullable=false dc(UserID) as u by MobilePhone, MobilePhoneModel
+| sort - u
+| head 10
+
+
+-- File: q13.ppl
+/*
+SELECT SearchPhrase, COUNT(*) AS c FROM hits WHERE SearchPhrase <> ''
+GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| stats bucket_nullable=false count() as c by SearchPhrase
+| sort - c
+| head 10
+
+
+-- File: q14.ppl
+/*
+SELECT SearchPhrase, COUNT(DISTINCT UserID) AS u
+FROM hits WHERE SearchPhrase <> ''
+GROUP BY SearchPhrase ORDER BY u DESC LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| stats bucket_nullable=false dc(UserID) as u by SearchPhrase
+| sort - u
+| head 10
+
+
+-- File: q15.ppl
+/*
+SELECT SearchEngineID, SearchPhrase, COUNT(*) AS c
+FROM hits WHERE SearchPhrase <> ''
+GROUP BY SearchEngineID, SearchPhrase ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| stats bucket_nullable=false count() as c by SearchEngineID, SearchPhrase
+| sort - c
+| head 10
+
+
+-- File: q16.ppl
+/*
+SELECT UserID, COUNT(*) FROM hits GROUP BY UserID ORDER BY COUNT(*) DESC LIMIT 10;
+*/
+source=hits
+| stats bucket_nullable=false count() by UserID
+| sort - `count()`
+| head 10
+
+
+-- File: q17.ppl
+/*
+SELECT UserID, SearchPhrase, COUNT(*)
+FROM hits GROUP BY UserID, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10;
+*/
+source=hits
+| stats bucket_nullable=false count() by UserID, SearchPhrase
+| sort - `count()`
+| head 10
+
+
+-- File: q18.ppl
+/*
+SELECT UserID, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, SearchPhrase LIMIT 10;
+*/
+source=hits
+| stats bucket_nullable=false count() by UserID, SearchPhrase
+| head 10
+
+
+-- File: q19.ppl
+/*
+SELECT UserID, extract(minute FROM EventTime) AS m, SearchPhrase, COUNT(*)
+FROM hits GROUP BY UserID, m, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10;
+*/
+source=hits
+| eval m = extract(minute from EventTime)
+| stats bucket_nullable=false count() by UserID, m, SearchPhrase
+| sort - `count()`
+| head 10
+
+
+-- File: q2.ppl
+/*
+SELECT COUNT(*) FROM hits WHERE AdvEngineID <> 0;
+*/
+source=hits | where AdvEngineID!=0 | stats count()
+
+-- File: q20.ppl
+/*
+SELECT UserID FROM hits WHERE UserID = 435090932899640449;
+*/
+source=hits
+| where UserID = 435090932899640449
+| fields UserID
+
+-- File: q21.ppl
+/*
+SELECT COUNT(*) FROM hits WHERE URL LIKE '%google%';
+*/
+source=hits
+| where like(URL, '%google%')
+| stats count()
+
+-- File: q22.ppl
+/*
+SELECT SearchPhrase, MIN(URL), COUNT(*) AS c
+FROM hits WHERE URL LIKE '%google%' AND SearchPhrase <> ''
+GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where like(URL, '%google%') and SearchPhrase != ''
+| stats bucket_nullable=false /* min(URL), */ count() as c by SearchPhrase
+| sort - c
+| head 10
+
+
+-- File: q23.ppl
+/*
+SELECT SearchPhrase, MIN(URL), MIN(Title), COUNT(*) AS c, COUNT(DISTINCT UserID)
+FROM hits WHERE Title LIKE '%Google%' AND URL NOT LIKE '%.google.%' AND SearchPhrase <> ''
+GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where like(Title, '%Google%') and not like(URL, '%.google.%') and SearchPhrase != ''
+| stats bucket_nullable=false /* min(URL), min(Title), */ count() as c, dc(UserID) by SearchPhrase
+| sort - c
+| head 10
+
+
+-- File: q24.ppl
+/*
+SELECT * FROM hits WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 10;
+*/
+source=hits
+| where like(URL, '%google%')
+| sort EventTime
+| head 10
+
+-- File: q25.ppl
+/*
+SELECT SearchPhrase FROM hits WHERE SearchPhrase <> '' ORDER BY EventTime LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| sort EventTime
+| fields SearchPhrase
+| head 10
+
+-- File: q26.ppl
+/*
+SELECT SearchPhrase FROM hits WHERE SearchPhrase <> '' ORDER BY SearchPhrase LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| fields SearchPhrase
+| sort SearchPhrase
+| head 10
+
+-- File: q27.ppl
+/*
+SELECT SearchPhrase FROM hits WHERE SearchPhrase <> '' ORDER BY EventTime, SearchPhrase LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| sort EventTime, SearchPhrase
+| fields SearchPhrase
+| head 10
+
+-- File: q28.ppl
+/*
+SELECT CounterID, AVG(length(URL)) AS l, COUNT(*) AS c
+FROM hits WHERE URL <> '' GROUP BY CounterID HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25;
+*/
+source=hits
+| where URL != ''
+| stats bucket_nullable=false avg(length(URL)) as l, count() as c by CounterID
+| where c > 100000
+| sort - l
+| head 25
+
+
+-- File: q29.ppl
+/*
+SELECT REGEXP_REPLACE(Referer, '^https?://(?:www\.)?([^/]+)/.*$', '\1') AS k,
+AVG(length(Referer)) AS l, COUNT(*) AS c, MIN(Referer)
+FROM hits WHERE Referer <> '' GROUP BY k HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25;
+*/
+/*
+OpenSearch accepts Json as restful request payload, convert \. to \\. and \1 to \\1
+*/
+source=hits
+| where Referer != ''
+| eval k = regexp_replace(Referer, '^https?://(?:www\\.)?([^/]+)/.*$', '\\1')
+| stats bucket_nullable=false avg(length(Referer)) as l, count() as c, min(Referer) by k
+| where c > 100000
+| sort - l
+| head 25
+
+
+-- File: q3.ppl
+/*
+SELECT SUM(AdvEngineID), COUNT(*), AVG(ResolutionWidth) FROM hits;
+*/
+source=hits | stats sum(AdvEngineID), count() , avg(ResolutionWidth)
+
+-- File: q30.ppl
+/*
+SELECT SUM(ResolutionWidth), SUM(ResolutionWidth + 1), ... SUM(ResolutionWidth + 89) FROM hits;
+*/
+source=hits
+| stats
+    sum(ResolutionWidth),
+    sum(ResolutionWidth+1),
+    sum(ResolutionWidth+2),
+    sum(ResolutionWidth+3),
+    sum(ResolutionWidth+4),
+    sum(ResolutionWidth+5),
+    sum(ResolutionWidth+6),
+    sum(ResolutionWidth+7),
+    sum(ResolutionWidth+8),
+    sum(ResolutionWidth+9),
+    sum(ResolutionWidth+10),
+    sum(ResolutionWidth+11),
+    sum(ResolutionWidth+12),
+    sum(ResolutionWidth+13),
+    sum(ResolutionWidth+14),
+    sum(ResolutionWidth+15),
+    sum(ResolutionWidth+16),
+    sum(ResolutionWidth+17),
+    sum(ResolutionWidth+18),
+    sum(ResolutionWidth+19),
+    sum(ResolutionWidth+20),
+    sum(ResolutionWidth+21),
+    sum(ResolutionWidth+22),
+    sum(ResolutionWidth+23),
+    sum(ResolutionWidth+24),
+    sum(ResolutionWidth+25),
+    sum(ResolutionWidth+26),
+    sum(ResolutionWidth+27),
+    sum(ResolutionWidth+28),
+    sum(ResolutionWidth+29),
+    sum(ResolutionWidth+30),
+    sum(ResolutionWidth+31),
+    sum(ResolutionWidth+32),
+    sum(ResolutionWidth+33),
+    sum(ResolutionWidth+34),
+    sum(ResolutionWidth+35),
+    sum(ResolutionWidth+36),
+    sum(ResolutionWidth+37),
+    sum(ResolutionWidth+38),
+    sum(ResolutionWidth+39),
+    sum(ResolutionWidth+40),
+    sum(ResolutionWidth+41),
+    sum(ResolutionWidth+42),
+    sum(ResolutionWidth+43),
+    sum(ResolutionWidth+44),
+    sum(ResolutionWidth+45),
+    sum(ResolutionWidth+46),
+    sum(ResolutionWidth+47),
+    sum(ResolutionWidth+48),
+    sum(ResolutionWidth+49),
+    sum(ResolutionWidth+50),
+    sum(ResolutionWidth+51),
+    sum(ResolutionWidth+52),
+    sum(ResolutionWidth+53),
+    sum(ResolutionWidth+54),
+    sum(ResolutionWidth+55),
+    sum(ResolutionWidth+56),
+    sum(ResolutionWidth+57),
+    sum(ResolutionWidth+58),
+    sum(ResolutionWidth+59),
+    sum(ResolutionWidth+60),
+    sum(ResolutionWidth+61),
+    sum(ResolutionWidth+62),
+    sum(ResolutionWidth+63),
+    sum(ResolutionWidth+64),
+    sum(ResolutionWidth+65),
+    sum(ResolutionWidth+66),
+    sum(ResolutionWidth+67),
+    sum(ResolutionWidth+68),
+    sum(ResolutionWidth+69),
+    sum(ResolutionWidth+70),
+    sum(ResolutionWidth+71),
+    sum(ResolutionWidth+72),
+    sum(ResolutionWidth+73),
+    sum(ResolutionWidth+74),
+    sum(ResolutionWidth+75),
+    sum(ResolutionWidth+76),
+    sum(ResolutionWidth+77),
+    sum(ResolutionWidth+78),
+    sum(ResolutionWidth+79),
+    sum(ResolutionWidth+80),
+    sum(ResolutionWidth+81),
+    sum(ResolutionWidth+82),
+    sum(ResolutionWidth+83),
+    sum(ResolutionWidth+84),
+    sum(ResolutionWidth+85),
+    sum(ResolutionWidth+86),
+    sum(ResolutionWidth+87),
+    sum(ResolutionWidth+88),
+    sum(ResolutionWidth+89)
+
+-- File: q31.ppl
+/*
+SELECT SearchEngineID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+FROM hits WHERE SearchPhrase <> '' GROUP BY SearchEngineID, ClientIP ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| stats bucket_nullable=false count() as c, sum(IsRefresh), avg(ResolutionWidth) by SearchEngineID, ClientIP
+| sort - c
+| head 10
+
+
+-- File: q32.ppl
+/*
+SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+FROM hits WHERE SearchPhrase <> '' GROUP BY WatchID, ClientIP ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| where SearchPhrase != ''
+| stats bucket_nullable=false count() as c, sum(IsRefresh), avg(ResolutionWidth) by WatchID, ClientIP
+| sort - c
+| head 10
+
+
+-- File: q33.ppl
+/*
+SELECT WatchID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth)
+FROM hits GROUP BY WatchID, ClientIP ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| stats bucket_nullable=false count() as c, sum(IsRefresh), avg(ResolutionWidth) by WatchID, ClientIP
+| sort - c
+| head 10
+
+
+-- File: q34.ppl
+/*
+SELECT URL, COUNT(*) AS c FROM hits GROUP BY URL ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| stats bucket_nullable=false count() as c by URL
+| sort - c
+| head 10
+
+
+-- File: q35.ppl
+/*
+SELECT 1, URL, COUNT(*) AS c FROM hits GROUP BY 1, URL ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| eval const = 1
+| stats bucket_nullable=false count() as c by const, URL
+| sort - c
+| head 10
+
+
+-- File: q36.ppl
+/*
+SELECT ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3, COUNT(*) AS c
+FROM hits GROUP BY ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3 ORDER BY c DESC LIMIT 10;
+*/
+source=hits
+| eval `ClientIP - 1` = ClientIP - 1, `ClientIP - 2` = ClientIP - 2, `ClientIP - 3` = ClientIP - 3
+| stats bucket_nullable=false count() as c by `ClientIP`, `ClientIP - 1`, `ClientIP - 2`, `ClientIP - 3`
+| sort - c
+| head 10
+
+
+-- File: q37.ppl
+/*
+SELECT URL, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31'
+AND DontCountHits = 0 AND IsRefresh = 0 AND URL <> ''
+GROUP BY URL ORDER BY PageViews DESC LIMIT 10;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and DontCountHits = 0 and IsRefresh = 0 and URL != ''
+| stats bucket_nullable=false count() as PageViews by URL
+| sort - PageViews
+| head 10
+
+
+-- File: q38.ppl
+/*
+SELECT Title, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31'
+AND DontCountHits = 0 AND IsRefresh = 0 AND Title <> ''
+GROUP BY Title ORDER BY PageViews DESC LIMIT 10;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and DontCountHits = 0 and IsRefresh = 0 and Title != ''
+| stats bucket_nullable=false count() as PageViews by Title
+| sort - PageViews
+| head 10
+
+
+-- File: q39.ppl
+/*
+SELECT URL, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31'
+AND IsRefresh = 0 AND IsLink <> 0 AND IsDownload = 0
+GROUP BY URL ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and IsRefresh = 0 and IsLink != 0 and IsDownload = 0
+| stats bucket_nullable=false count() as PageViews by URL
+| sort - PageViews
+| head 10 from 1000
+
+
+-- File: q4.ppl
+/*
+SELECT AVG(UserID) FROM hits;
+*/
+source=hits | stats avg(UserID)
+
+-- File: q40.ppl
+/*
+SELECT TraficSourceID, SearchEngineID, AdvEngineID, CASE WHEN (SearchEngineID = 0 AND AdvEngineID = 0) THEN Referer ELSE '' END AS Src, URL AS Dst, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND IsRefresh = 0
+GROUP BY TraficSourceID, SearchEngineID, AdvEngineID, Src, Dst ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and IsRefresh = 0
+| eval Src=case(SearchEngineID = 0 and AdvEngineID = 0, Referer else ''), Dst=URL
+| stats bucket_nullable=false count() as PageViews by TraficSourceID, SearchEngineID, AdvEngineID, Src, Dst
+| sort - PageViews
+| head 10 from 1000
+
+
+-- File: q41.ppl
+/*
+SELECT URLHash, EventDate, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31'
+AND IsRefresh = 0 AND TraficSourceID IN (-1, 6) AND RefererHash = 3594120000172545465
+GROUP BY URLHash, EventDate ORDER BY PageViews DESC LIMIT 10 OFFSET 100;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and IsRefresh = 0 and TraficSourceID in (-1, 6) and RefererHash = 3594120000172545465
+| stats bucket_nullable=false count() as PageViews by URLHash, EventDate
+| sort - PageViews
+| head 10 from 100
+
+
+-- File: q42.ppl
+/*
+SELECT WindowClientWidth, WindowClientHeight, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31'
+AND IsRefresh = 0 AND DontCountHits = 0 AND URLHash = 2868770270353813622
+GROUP BY WindowClientWidth, WindowClientHeight ORDER BY PageViews DESC LIMIT 10 OFFSET 10000;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-31 00:00:00' and IsRefresh = 0 and DontCountHits = 0 and URLHash = 2868770270353813622
+| stats bucket_nullable=false count() as PageViews by WindowClientWidth, WindowClientHeight
+| sort - PageViews
+| head 10 from 10000
+
+
+-- File: q43.ppl
+/*
+SELECT DATE_FORMAT(EventTime, '%Y-%m-%d %H:00:00') AS M, COUNT(*) AS PageViews
+FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-14' AND EventDate <= '2013-07-15'
+AND IsRefresh = 0 AND DontCountHits = 0
+GROUP BY DATE_FORMAT(EventTime, '%Y-%m-%d %H:00:00')
+ORDER BY DATE_FORMAT(EventTime, '%Y-%m-%d %H:00:00')
+LIMIT 10 OFFSET 1000;
+*/
+source=hits
+| where CounterID = 62 and EventDate >= '2013-07-01 00:00:00' and EventDate <= '2013-07-15 00:00:00' and IsRefresh = 0 and DontCountHits = 0
+| eval M = date_format(EventTime, '%Y-%m-%d %H:00:00')
+| stats bucket_nullable=false count() as PageViews by M
+| sort M
+| head 10 from 1000
+
+
+-- File: q5.ppl
+/*
+SELECT COUNT(DISTINCT UserID) FROM hits;
+*/
+source=hits | stats dc(UserID)
+
+-- File: q6.ppl
+/*
+SELECT COUNT(DISTINCT SearchPhrase) FROM hits;
+*/
+source=hits | stats dc(SearchPhrase)
+
+-- File: q7.ppl
+/*
+SELECT MIN(EventDate), MAX(EventDate) FROM hits;
+*/
+source=hits | stats min(EventDate), max(EventDate)
+
+-- File: q8.ppl
+/*
+SELECT AdvEngineID, COUNT(*) FROM hits WHERE AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC;
+*/
+source=hits | where AdvEngineID!=0 | stats bucket_nullable=false count() by AdvEngineID | sort - `count()`
+
+
+-- File: q9.ppl
+/*
+SELECT RegionID, COUNT(DISTINCT UserID) AS u FROM hits GROUP BY RegionID ORDER BY u DESC LIMIT 10;
+*/
+source=hits | stats bucket_nullable=false dc(UserID) as u by RegionID | sort -u | head 10
+
+

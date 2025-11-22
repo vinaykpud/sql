@@ -411,11 +411,13 @@ public class MatcherUtils {
         JsonParser.parseString(eliminatePid(actual)));
   }
 
-  /**
-   * Compare two JSON string are equals with ignoring the RelNode id in the Calcite plan.
-   * Deprecated, use {@link #assertYamlEqualsIgnoreId(String, String)}
-   */
-  @Deprecated
+  public static void assertJsonEquals(String message, String expected, String actual) {
+    assertEquals(message,
+            JsonParser.parseString(eliminatePid(expected)),
+            JsonParser.parseString(eliminatePid(actual)));
+  }
+
+  /** Compare two JSON string are equals with ignoring the RelNode id in the Calcite plan. */
   public static void assertJsonEqualsIgnoreId(String expected, String actual) {
     assertJsonEquals(cleanUpId(expected), cleanUpId(actual));
   }

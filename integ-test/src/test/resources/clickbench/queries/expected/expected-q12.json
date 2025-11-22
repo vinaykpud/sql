@@ -1,0 +1,35 @@
+{
+  "schema": [
+    {
+      "name": "u",
+      "type": "bigint"
+    },
+    {
+      "name": "MobilePhone",
+      "type": "smallint"
+    },
+    {
+      "name": "MobilePhoneModel",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      2,
+      0,
+      "Samsung"
+    ],
+    [
+      1,
+      1,
+      "Samsung"
+    ],
+    [
+      1,
+      1,
+      "iPhone"
+    ]
+  ],
+  "total": 3,
+  "size": 3
+}

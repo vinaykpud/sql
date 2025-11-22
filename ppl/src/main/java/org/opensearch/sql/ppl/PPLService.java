@@ -89,6 +89,7 @@ public class PPLService {
       PPLQueryRequest request,
       ResponseListener<QueryResponse> queryListener,
       ResponseListener<ExplainResponse> explainListener) {
+    log.info("ORIGINAL PPL {}", request.getRequest());
     // 1.Parse query and convert parse tree (CST) to abstract syntax tree (AST)
     ParseTree cst = parser.parse(request.getRequest());
     Statement statement =

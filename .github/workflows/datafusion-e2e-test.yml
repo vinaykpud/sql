@@ -79,6 +79,10 @@ jobs:
           # Wait for OpenSearch to start
           timeout 300 bash -c 'until curl -s http://localhost:9200; do sleep 5; done'
 
+      - name: Run SQL CalcitePPLClickbenchIT
+        working-directory: opensearch-sql
+        run: ./gradlew :integ-test:integTest --tests "org.opensearch.sql.calcite.clickbench.CalcitePPLClickBenchIT" -Dtests.method="testDataFusion" -Dtests.cluster=localhost:9200 -Dtests.rest.cluster=localhost:9200 -DignorePrometheus=true -Dtests.clustername=opensearch
+
       - name: Run E2E Tests
         run: |
           # Create index

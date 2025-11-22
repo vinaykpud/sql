@@ -1,0 +1,15 @@
+{
+  "schema": [
+    {
+      "name": "avg(UserID)",
+      "type": "double"
+    }
+  ],
+  "datarows": [
+    [
+      7.097649851196608E17
+    ]
+  ],
+  "total": 1,
+  "size": 1
+}
