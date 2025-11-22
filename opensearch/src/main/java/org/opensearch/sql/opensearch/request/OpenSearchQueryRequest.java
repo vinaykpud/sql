@@ -39,15 +39,12 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
-import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
-import org.apache.calcite.sql.SqlOperator;
-import org.apache.calcite.sql.fun.SqlCastFunction;
 import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
-import org.apache.calcite.sql.type.BasicSqlType;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.tools.FrameworkConfig;
 import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.util.Pair;
@@ -70,11 +67,10 @@ import org.opensearch.search.SearchModule;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
-import org.opensearch.sql.ast.tree.Rex;
 import org.opensearch.sql.calcite.type.ExprSqlType;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
-import org.opensearch.sql.calcite.type.AbstractExprRelDataType;
+import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
@@ -82,6 +78,7 @@ import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
 
 import java.io.IOException;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -93,7 +90,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
-import static org.apache.calcite.sql.fun.SqlLibraryOperators.TIMESTAMP;
 import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
 import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
 import static org.opensearch.search.sort.SortOrder.ASC;
@@ -543,7 +539,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                           return aggregate.copy(aggregate.getTraitSet(), Collections.singletonList(newInput));
                       }
 
-                      RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                      FrameworkConfig config = Frameworks.newConfigBuilder()
+                              .typeSystem(OpenSearchTypeSystem.INSTANCE)
+                              .build();
+                      Connection connection = CalciteToolsHelper.connect(config, OpenSearchTypeFactory.TYPE_FACTORY);
+                      RelBuilder builder = CalciteToolsHelper.create(config, OpenSearchTypeFactory.TYPE_FACTORY, connection);
                       builder.push(newInput);
 
                       List<RelBuilder.AggCall> newAggCalls = new ArrayList<>();
@@ -594,7 +594,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                           return project.copy(project.getTraitSet(), Collections.singletonList(newInput));
                       }
 
-                      RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                      FrameworkConfig config = Frameworks.newConfigBuilder()
+                              .typeSystem(OpenSearchTypeSystem.INSTANCE)
+                              .build();
+                      Connection connection = CalciteToolsHelper.connect(config, OpenSearchTypeFactory.TYPE_FACTORY);
+                      RelBuilder builder = CalciteToolsHelper.create(config, OpenSearchTypeFactory.TYPE_FACTORY, connection);
                       builder.push(newInput);
 
                       List<RexNode> newProjects = new ArrayList<>();
@@ -926,7 +930,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                             return super.visit(aggregate);
                         }
 
-                        RelBuilder builder = RelBuilder.create(Frameworks.newConfigBuilder().build());
+                        FrameworkConfig config = Frameworks.newConfigBuilder()
+                                .typeSystem(OpenSearchTypeSystem.INSTANCE)
+                                .build();
+                        Connection connection = CalciteToolsHelper.connect(config, OpenSearchTypeFactory.TYPE_FACTORY);
+                        RelBuilder builder = CalciteToolsHelper.create(config, OpenSearchTypeFactory.TYPE_FACTORY, connection);
                         builder.push(aggregate.getInput());
 
                         List<RelBuilder.AggCall> aggCalls = new ArrayList<>();
