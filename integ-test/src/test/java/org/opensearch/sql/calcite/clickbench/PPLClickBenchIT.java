@@ -62,27 +62,6 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
 
     // Display detailed query results
     if (!passing.isEmpty() || !response_200_failing.isEmpty() || !non_200.isEmpty()) {
-      System.out.println("Query Results:");
-      System.out.println("+---------+------------------+");
-      System.out.println("| Query   | Status           |");
-      System.out.println("+---------+------------------+");
-
-      // Show passing queries
-      passing.stream()
-              .sorted()
-              .forEach(q -> System.out.printf(Locale.ENGLISH, "| %-7d | %-16s |%n", q, "PASS"));
-
-      // Show queries that returned 200 but failed assertion
-      response_200_failing.stream()
-              .sorted()
-              .forEach(q -> System.out.printf(Locale.ENGLISH, "| %-7d | %-16s |%n", q, "FAIL (200)"));
-
-      // Show queries that didn't return 200
-      non_200.stream()
-              .sorted()
-              .forEach(q -> System.out.printf(Locale.ENGLISH, "| %-7d | %-16s |%n", q, "FAIL (non-200)"));
-
-      System.out.println("+---------+------------------+");
       System.out.printf(
               Locale.ENGLISH,
               "Total: %d | Passed: %d | Failed (200): %d | Failed (non-200): %d%n",
@@ -118,7 +97,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
 
   /** Queries that are returning 200s and response is correct and not empty */
   protected Set<Integer> supported() {
-    return Set.of(1, 2, 3, 8, 13, 15);
+    return Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15, 16, 17, 18, 21, 22, 23, 28, 31, 32, 33, 34, 35, 36, 37, 38);
   }
 
   @Test
