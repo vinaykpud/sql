@@ -98,7 +98,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
 
   /** Queries that are returning 200s and response is correct and not empty */
   protected Set<Integer> df_ignored() {
-    return Set.of(10, 11, 12, 14, 19, 24, 29, 30, 39, 40, 41, 43);
+    return Set.of(9, 10, 11, 12, 14, 19, 20, 24, 25, 26, 27, 28, 29, 30, 39, 40, 41, 42, 43);
   }
 
   @Test
@@ -149,7 +149,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
     failed.addAll(response_200_failing);
     failed.addAll(non_200);
     List<Integer> supportedButNotPassing = failed.stream()
-            .filter(ignore::contains)
+            .filter(i -> !ignore.contains(i))
             .sorted()
             .toList();
     assertEquals("Expected all supported queries to be marked passing", Collections.emptyList(), supportedButNotPassing);

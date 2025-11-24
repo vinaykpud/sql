@@ -1,6 +1,8 @@
 {
   "settings": {
     "index": {
+      "number_of_shards": 2,
+      "number_of_replicas": 0,
       "sort.field": [ "CounterID", "EventDate", "UserID", "EventTime", "WatchID" ],
       "sort.order": [ "desc", "desc", "desc", "desc", "desc" ]
     }
