@@ -9,6 +9,7 @@ import static org.opensearch.sql.util.MatcherUtils.assertJsonEquals;
 import static org.opensearch.sql.util.MatcherUtils.assertYamlEqualsIgnoreId;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.HashSet;
@@ -96,8 +97,8 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
   }
 
   /** Queries that are returning 200s and response is correct and not empty */
-  protected Set<Integer> supported() {
-    return Set.of(1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 15, 16, 17, 18, 21, 22, 23, 28, 31, 32, 33, 34, 35, 36, 37, 38);
+  protected Set<Integer> df_ignored() {
+    return Set.of(10, 11, 12, 14, 19, 24, 29, 30, 39, 40, 41, 43);
   }
 
   @Test
@@ -105,6 +106,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
     // flip this to run everything and get the full current list of p/f/f200.
     // when false will fail on first f200 occurence and show assert diff.
     boolean runAllQueries = true;
+    Set<Integer> ignore = df_ignored();
     for (int i = 1; i <= 43; i++) {
       if (ignored().contains(i)) {
         continue;
@@ -113,14 +115,12 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
       System.out.println("RUNNING QUERY NUMBER: " + i + " Query: " + ppl);
 
       // TODO: Add plan comparisons
-      // V2 gets unstable scripts, ignore them when comparing plan
 //      if (isCalciteEnabled()) {
 //        String expected = loadExpectedPlan("clickbench/q" + i + ".yaml");
 //        assertYamlEqualsIgnoreId(expected, explainQueryYaml(ppl));
 //      }
       // runs the query and buckets into failing (non200), passing (200 and response matches), failing_200
       String actual = runQuery(summary, response_200, i, ppl);
-//      System.out.println("QUERY NUMBER: " + i + " Result: " + response_200.get(i));
       String expected = sanitize(loadFromFile("clickbench/queries/expected/expected-q" + i + ".json"));
 
       if (response_200.get(i)) {
@@ -130,7 +130,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
           passing.add(i);
         } catch (AssertionError e) {
           // comment this out to get a full list of current pass/failed
-          if (supported().contains(i) && runAllQueries == false) {
+          if (!ignore.contains(i) && runAllQueries == false) {
             throw e;
           }
           response_200_failing.add(i);
@@ -145,8 +145,11 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
     System.out.println("FAILING WITH 200: " + response_200_failing);
     System.out.println("FAILING: " + non_200);
 
-    List<Integer> supportedButNotPassing = supported().stream()
-            .filter(q -> !passing.contains(q))
+    List<Integer> failed = new ArrayList<>();
+    failed.addAll(response_200_failing);
+    failed.addAll(non_200);
+    List<Integer> supportedButNotPassing = failed.stream()
+            .filter(ignore::contains)
             .sorted()
             .toList();
     assertEquals("Expected all supported queries to be marked passing", Collections.emptyList(), supportedButNotPassing);
