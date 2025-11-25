@@ -525,6 +525,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   private static RelNode convertAvgToSumCount(RelNode relNode) {
       // Track: original AVG field index → (new SUM index, new COUNT index)
       Map<Integer, Pair<Integer, Integer>> avgFieldMapping = new HashMap<>();
+      // Track: original field index → new field index (for non-AVG fields)
+      Map<Integer, Integer> fieldIndexMapping = new HashMap<>();
 
       return relNode.accept(
               new RelShuttleImpl() {
@@ -551,6 +553,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                       List<RelBuilder.AggCall> newAggCalls = new ArrayList<>();
                       int newFieldIndex = aggregate.getGroupCount();
 
+                      // First, map group fields (they don't change)
+                      for (int i = 0; i < aggregate.getGroupCount(); i++) {
+                          fieldIndexMapping.put(i, i);
+                      }
+
                       for (int i = 0; i < aggregate.getAggCallList().size(); i++) {
                           AggregateCall aggCall = aggregate.getAggCallList().get(i);
                           int originalFieldIndex = aggregate.getGroupCount() + i;
@@ -568,8 +575,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                                               aggCall.isDistinct(),
                                               aggCall.getName() + "_count",
                                               builder.field(aggCall.getArgList().get(0))));
-                              newFieldIndex += 2;
+                              newFieldIndex += 2; // avg is adding 2 fields: sum & count
                           } else {
+                              fieldIndexMapping.put(originalFieldIndex, newFieldIndex);
                               newAggCalls.add(
                                       builder
                                               .aggregateCall(
@@ -610,17 +618,25 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                           RexNode expr = project.getProjects().get(i);
                           String name = project.getRowType().getFieldNames().get(i);
 
-                          // If this is a direct reference to an AVG field, expand to SUM + COUNT
                           if (expr instanceof RexInputRef) {
                               RexInputRef inputRef = (RexInputRef) expr;
-                              Pair<Integer, Integer> mapping = avgFieldMapping.get(inputRef.getIndex());
 
-                              if (mapping != null) {
+                              // Check if this is an AVG field that needs expansion
+                              Pair<Integer, Integer> avgMapping = avgFieldMapping.get(inputRef.getIndex());
+                              if (avgMapping != null) {
                                   // Add both SUM and COUNT columns
-                                  newProjects.add(builder.field(mapping.left));
+                                  newProjects.add(builder.field(avgMapping.left));
                                   newNames.add(name + "_sum");
-                                  newProjects.add(builder.field(mapping.right));
+                                  newProjects.add(builder.field(avgMapping.right));
                                   newNames.add(name + "_count");
+                                  continue;
+                              }
+
+                              // Otherwise, remap the field index for non-AVG fields
+                              Integer newIndex = fieldIndexMapping.get(inputRef.getIndex());
+                              if (newIndex != null) {
+                                  newProjects.add(builder.field(newIndex));
+                                  newNames.add(name);
                                   continue;
                               }
                           }
