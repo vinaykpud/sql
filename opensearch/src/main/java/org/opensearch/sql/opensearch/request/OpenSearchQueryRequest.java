@@ -870,22 +870,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         }
     }
 
-    private static boolean isReplace(RexCall rexCall) {
-      return true;
-    }
-
     private static RexNode updateUDF(RexNode rexNode, RexBuilder rexBuilder) {
-
-      if (rexNode instanceof RexCall rexCall && isReplace(rexCall)) {
-          List<RexNode> originalOperands = rexCall.getOperands();
-          List<RexNode> updatedOperands = new ArrayList<>();
-          for (RexNode operand : originalOperands) {
-              if (operand instanceof RexLiteral stringLiteral) {
-
-              }
-          }
-      }
-
         // Handle Extract Function
         if (rexNode instanceof RexCall rexCall && isExtractFunction(rexCall)) {
             List<RexNode> originalOperands = rexCall.getOperands();
@@ -996,7 +981,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             @Override
             public RelNode visit(LogicalProject logicalProject) {
                 RelNode newInput = logicalProject.getInput().accept(this);
-                System.out.println("-> LogicalProject");
                 List<RexNode> updatedProjects = logicalProject.getProjects().stream()
                     .map(project -> updateUDF(project, logicalProject.getCluster().getRexBuilder()))
                     .collect(Collectors.toList());
@@ -1012,7 +996,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             @Override
             public RelNode visit(LogicalFilter logicalFilter) {
                 RelNode newInput = logicalFilter.getInput().accept(this);
-                System.out.println("-> LogicalFilter");
                 RexNode originalCondition = logicalFilter.getCondition();
                 RexNode updatedCondition = updateUDF(originalCondition, logicalFilter.getCluster().getRexBuilder());
                 return LogicalFilter.create(newInput, updatedCondition);
@@ -1021,8 +1004,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             @Override
             public RelNode visit(LogicalAggregate logicalAggregate) {
                 RelNode newInput = logicalAggregate.getInput().accept(this);
-                // Your transformation logic here
-                System.out.println("-> LogicalAggregate");
                 return LogicalAggregate.create(
                     newInput,
                     logicalAggregate.getHints(),
@@ -1034,9 +1015,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
             @Override
             public RelNode visit(TableScan tableScan) {
-                if (tableScan instanceof CalciteLogicalIndexScan indexScan) {
-                    System.out.println("-> CalciteLogicalIndexScan");
-                }
                 return tableScan;
             }
 
@@ -1045,8 +1023,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 if (other instanceof LogicalSystemLimit) {
                     LogicalSystemLimit limit = (LogicalSystemLimit) other;
                     RelNode newInput = limit.getInput().accept(this);
-                    // Your transformation logic here
-                    System.out.println("-> LogicalSystemLimit");
                     return LogicalSystemLimit.create(
                         limit.getType(),
                         newInput,
