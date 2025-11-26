@@ -386,10 +386,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertAvgToSumCount(relNode);
         // Support to convert COUNT(DISTINCT) to APPROX_COUNT_DISTINCT for partial results
         relNode = convertCountDistinctToApprox(relNode);
-        // Support to convert span
-        relNode = convertSpan(relNode);
-        // Support to convert ILIKE
-        relNode = convertILike(relNode);
 
         LOGGER.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
@@ -441,7 +437,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "extract"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "strftime"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "strftime"),
-                new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace")
+                new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace"),
+                new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, "like")
         );
 
         TypeConverter typeConverter = new TypeConverter(
@@ -645,133 +642,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               });
   }
 
-  private static RelNode convertSpan(RelNode relNode) {
-      return relNode.accept(new RelShuttleImpl() {
-          @Override
-          public RelNode visit(LogicalProject logicalProject) {
-              List<RexNode> originalProjects = logicalProject.getProjects();
-              List<RexNode> transformedProjects = new ArrayList<>();
-              boolean hasSpan = false;
-
-              for (RexNode project : originalProjects) {
-                  if (isSpanFunction(project)) {
-                      hasSpan = true;
-                      transformedProjects.add(transformSpanToFloor(project, logicalProject.getCluster().getRexBuilder()));
-                  } else {
-                      transformedProjects.add(project);
-                  }
-              }
-
-              if (!hasSpan) {
-                  return super.visit(logicalProject);
-              }
-
-              return LogicalProject.create(
-                  logicalProject.getInput(),
-                  logicalProject.getHints(),
-                  transformedProjects,
-                  logicalProject.getRowType()
-              );
-          }
-
-          private boolean isSpanFunction(RexNode node) {
-              return node instanceof RexCall rexCall
-                  && rexCall.getKind() == SqlKind.OTHER_FUNCTION
-                  && rexCall.getOperator().getName().equalsIgnoreCase(BuiltinFunctionName.SPAN.name());
-          }
-
-          private RexNode transformSpanToFloor(RexNode spanNode, RexBuilder rexBuilder) {
-              RexCall spanCall = (RexCall) spanNode;
-              List<RexNode> operands = spanCall.getOperands();
-
-              // SPAN(field, divisor, unit) -> FLOOR(field / divisor) * divisor
-              if (operands.size() >= 2) {
-                  RexNode field = operands.get(0);
-                  RexNode divisor = operands.get(1);
-
-                  RexNode division = rexBuilder.makeCall(SqlStdOperatorTable.DIVIDE, field, divisor);
-                  // Cast division to REAL for Substrait compatibility
-                  RexNode realDivision = rexBuilder.makeCast(
-                      rexBuilder.getTypeFactory().createSqlType(SqlTypeName.REAL),
-                      division);
-                  RexNode floor = rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, realDivision);
-                  return rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, floor, divisor);
-              } else {
-                  return spanNode;
-              }
-          }
-      });
-  }
-
-    private static RelNode convertILike(RelNode relNode) {
-        return relNode.accept(new RelShuttleImpl() {
-            @Override
-            public RelNode visit(LogicalFilter logicalFilter) {
-                // Transform the filter condition to convert ILIKE to LIKE
-                RexNode originalCondition = logicalFilter.getCondition();
-                RexNode transformedCondition = transformCondition(originalCondition, logicalFilter.getCluster().getRexBuilder());
-
-                // If no transformation occurred, return original
-                if (transformedCondition == originalCondition) {
-                    return super.visit(logicalFilter);
-                }
-
-                // Create new LogicalFilter with transformed condition
-                return LogicalFilter.create(
-                        logicalFilter.getInput(),
-                        transformedCondition
-                );
-            }
-
-            private RexNode transformCondition(RexNode condition, RexBuilder rexBuilder) {
-                if (condition instanceof RexCall rexCall) {
-                    if (isILikeFunction(rexCall)) {
-                        return transformILikeToLike(rexCall, rexBuilder);
-                    }
-
-                    // Recursively transform operands for compound expressions
-                    List<RexNode> originalOperands = rexCall.getOperands();
-                    List<RexNode> transformedOperands = new ArrayList<>();
-                    boolean hasTransformation = false;
-
-                    for (RexNode operand : originalOperands) {
-                        RexNode transformedOperand = transformCondition(operand, rexBuilder);
-                        transformedOperands.add(transformedOperand);
-                        if (transformedOperand != operand) {
-                            hasTransformation = true;
-                        }
-                    }
-
-                    // If any operand was transformed, create new call with transformed operands
-                    if (hasTransformation) {
-                        return rexBuilder.makeCall(rexCall.getOperator(), transformedOperands);
-                    }
-                }
-                return condition;
-            }
-
-            private boolean isILikeFunction(RexCall rexCall) {
-                return rexCall.getOperator() == SqlLibraryOperators.ILIKE;
-            }
-
-            private RexNode transformILikeToLike(RexCall iLikeCall, RexBuilder rexBuilder) {
-                List<RexNode> operands = iLikeCall.getOperands();
-
-                // ILIKE typically has 2-3 operands: (field, pattern) or (field, pattern, escape)
-                if (operands.size() >= 2) {
-                    RexNode field = operands.get(0);
-                    RexNode pattern = operands.get(1);
-                    // Use UPPER for both field and pattern so that its case in-sensitive
-                    RexNode upperField = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, field);
-                    RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
-
-                    return rexBuilder.makeCall(SqlStdOperatorTable.LIKE, upperField, upperPattern);
-                }
-                return iLikeCall;
-            }
-        });
-    }
-
     private static RelNode convertCountDistinctToApprox(RelNode relNode) {
         return relNode.accept(new RelShuttleImpl() {
             @Override
@@ -829,6 +699,15 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               && rexCall.getOperator() == PPLBuiltinOperators.EXTRACT;
     }
 
+    private static boolean isSpanFunction(RexCall rexCall) {
+        return rexCall.getKind() == SqlKind.OTHER_FUNCTION
+            && rexCall.getOperator().getName().equalsIgnoreCase(BuiltinFunctionName.SPAN.name());
+    }
+
+    private static boolean isILikeFunction(RexCall rexCall) {
+        return rexCall.getOperator() == SqlLibraryOperators.ILIKE;
+    }
+
     private static org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
         // Map given time unit strings to Calcite TimeUnitRange
         switch (timeUnitStr.toUpperCase()) {
@@ -869,6 +748,35 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
     private static RexNode updateUDF(RexNode rexNode, RexBuilder rexBuilder) {
+        // Handle SPAN Function
+        if (rexNode instanceof RexCall rexCall && isSpanFunction(rexCall)) {
+            List<RexNode> operands = rexCall.getOperands();
+            // SPAN(field, divisor, unit) -> FLOOR(field / divisor) * divisor
+            if (operands.size() >= 2) {
+                RexNode field = operands.get(0);
+                RexNode divisor = operands.get(1);
+                RexNode division = rexBuilder.makeCall(SqlStdOperatorTable.DIVIDE, field, divisor);
+                RexNode realDivision = rexBuilder.makeCast(
+                    rexBuilder.getTypeFactory().createSqlType(SqlTypeName.REAL),
+                    division);
+                RexNode floor = rexBuilder.makeCall(SqlStdOperatorTable.FLOOR, realDivision);
+                return rexBuilder.makeCall(SqlStdOperatorTable.MULTIPLY, floor, divisor);
+            }
+        }
+
+        // Handle ILIKE Function
+        if (rexNode instanceof RexCall rexCall && isILikeFunction(rexCall)) {
+            List<RexNode> operands = rexCall.getOperands();
+            // We need exactly 2 operands if we want to match this with substrait like function
+            if (operands.size() >= 2) {
+                RexNode field = operands.get(0);
+                RexNode pattern = operands.get(1);
+                RexNode upperField = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, field);
+                RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
+                return rexBuilder.makeCall(rexCall.getOperator(), upperField, upperPattern);
+            }
+        }
+
         // Handle Extract Function
         if (rexNode instanceof RexCall rexCall && isExtractFunction(rexCall)) {
             List<RexNode> originalOperands = rexCall.getOperands();
