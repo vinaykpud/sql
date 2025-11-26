@@ -832,41 +832,39 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     private static org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
         // Map given time unit strings to Calcite TimeUnitRange
         switch (timeUnitStr.toUpperCase()) {
-            case "YEAR_MONTH":
-                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
-            case "YEAR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
-            case "MONTH":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
-            case "DAY":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
-            case "HOUR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
-            case "MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
-            case "SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
-            case "QUARTER":
-                return org.apache.calcite.avatica.util.TimeUnitRange.QUARTER;
-            case "WEEK":
-                return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
             case "MICROSECOND":
                 return org.apache.calcite.avatica.util.TimeUnitRange.MICROSECOND;
-            case "DAY_HOUR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
-            case "DAY_MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
-            case "DAY_SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
-            case "HOUR_MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
-            case "HOUR_SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
+            case "SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
+            case "MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
+            case "HOUR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
+            case "DAY":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
+            case "WEEK":
+                return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
+            case "MONTH":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
+            case "YEAR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
             case "MINUTE_SECOND":
                 return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE_TO_SECOND;
+            case "HOUR_SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
+            case "HOUR_MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
+            case "DAY_SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
+            case "DAY_MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
+            case "DAY_HOUR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
+            case "YEAR_MONTH":
+                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
             default:
-                // Default fallback to YEAR if unknown
-                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
+                throw new UnsupportedOperationException(
+                    "Time unit '" + timeUnitStr + "' is not supported");
         }
     }
 
