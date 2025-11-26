@@ -31,6 +31,7 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.RelShuttleImpl;
 import org.apache.calcite.rel.core.AggregateCall;
+import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
@@ -39,6 +40,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlLibraryOperators;
@@ -67,15 +69,19 @@ import org.opensearch.search.SearchModule;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
 import org.opensearch.sql.calcite.type.ExprSqlType;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
+import org.opensearch.sql.expression.function.PPLBuiltinOperators;
+import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
+import org.opensearch.sql.opensearch.storage.scan.CalciteLogicalIndexScan;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -371,6 +377,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         LOGGER.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
+        relNode = preprocessRelNodes(relNode);
         // Adds a count aggregate if absent for Coordinator merging using doc_count to work
         relNode = ensureCountAggregate(relNode);
         // Support to convert average into sum and count aggs else merging at Coordinator won't work.
@@ -381,10 +388,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         relNode = convertSpan(relNode);
         // Support to convert ILIKE
         relNode = convertILike(relNode);
-        // Support to convert Extract
-        relNode = convertExtract(relNode);
-        // Convert timestamp UDTs to SQL TIMESTAMP types
-        relNode = convertTimestamp(relNode);
 
         LOGGER.info("Calcite Logical Plan after Conversion\n {}", RelOptUtil.toString(relNode));
 
@@ -431,9 +434,11 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
-        List<FunctionMappings.Sig> customSigs = List.of(new FunctionMappings.Sig(
-                SqlStdOperatorTable.EXTRACT, "EXTRACT"
-        ));
+        List<FunctionMappings.Sig> customSigs = List.of(
+                new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "extract"),
+                new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "strftime"),
+                new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "strftime")
+        );
 
         TypeConverter typeConverter = new TypeConverter(
                 new UserTypeMapper() {
@@ -807,122 +812,81 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         });
     }
 
-    private static RelNode convertExtract(RelNode relNode) {
-        return relNode.accept(new RelShuttleImpl() {
-            @Override
-            public RelNode visit(LogicalProject logicalProject) {
-                List<RexNode> originalProjects = logicalProject.getProjects();
-                List<RexNode> transformedProjects = new ArrayList<>();
-                boolean hasExtract = false;
-
-                for (RexNode project : originalProjects) {
-                    if (isExtractFunction(project)) {
-                        hasExtract = true;
-                        transformedProjects.add(transformExtract(project, logicalProject.getCluster().getRexBuilder()));
-                    } else {
-                        transformedProjects.add(project);
-                    }
-                }
-
-                if (!hasExtract) {
-                    return super.visit(logicalProject);
-                }
-
-                return LogicalProject.create(
-                    logicalProject.getInput(),
-                    logicalProject.getHints(),
-                    transformedProjects,
-                    logicalProject.getRowType()
-                );
-            }
-
-            private boolean isExtractFunction(RexNode node) {
-                //For UserDefinedFunctions
-                return node instanceof RexCall rexCall
-                        && rexCall.getKind() == SqlKind.OTHER_FUNCTION
-                        && rexCall.getOperator().getName().equalsIgnoreCase("EXTRACT");
-            }
-
-            private RexNode transformExtract(RexNode extractNode, RexBuilder rexBuilder) {
-                RexCall extractCall = (RexCall) extractNode;
-                List<RexNode> operands = extractCall.getOperands();
-
-                // EXTRACT has 2 operands: time unit and date field
-                if (operands.size() >= 2) {
-                    RexNode timeUnitOperand = operands.get(0); // The time unit (e.g., 'YEAR')
-                    RexNode dateField = operands.get(1); // The date field ($0)
-
-                    // Convert string time unit to proper TimeUnitRange flag, this is required for Substrait compatibility
-                    RexNode timeUnitFlag;
-                    if (timeUnitOperand instanceof org.apache.calcite.rex.RexLiteral) {
-                        org.apache.calcite.rex.RexLiteral literal = (org.apache.calcite.rex.RexLiteral) timeUnitOperand;
-                        String timeUnitStr = literal.getValueAs(String.class);
-
-                        // Map the string to proper TimeUnitRange enum
-                        org.apache.calcite.avatica.util.TimeUnitRange timeUnitRange = mapStringToTimeUnitRange(timeUnitStr);
-                        timeUnitFlag = rexBuilder.makeFlag(timeUnitRange);
-                    } else {
-                        // If not a literal, use as-is (fallback)
-                        timeUnitFlag = timeUnitOperand;
-                    }
-
-                    // Create the standard EXTRACT call using SqlStdOperatorTable.EXTRACT
-                    // This maintains the same semantic meaning but uses the standard operator
-                    return rexBuilder.makeCall(
-                        SqlStdOperatorTable.EXTRACT,
-                        timeUnitFlag,
-                        dateField
-                    );
-                } else {
-                    return extractNode;
-                }
-            }
-
-            // TODO: Support all the formats given in https://github.com/opensearch-project/sql/blob/main/docs/user/ppl/functions/datetime.rst#extract
-            private org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
-                // Map OpenSearch time unit strings to Calcite TimeUnitRange
-                switch (timeUnitStr.toUpperCase()) {
-                    case "YEAR_MONTH":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
-                    case "YEAR":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
-                    case "MONTH":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
-                    case "DAY":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
-                    case "HOUR":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
-                    case "MINUTE":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
-                    case "SECOND":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
-                    case "QUARTER":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.QUARTER;
-                    case "WEEK":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
-                    case "MICROSECOND":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.MICROSECOND;
-                    case "DAY_HOUR":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
-                    case "DAY_MINUTE":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
-                    case "DAY_SECOND":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
-                    case "HOUR_MINUTE":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
-                    case "HOUR_SECOND":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
-                    case "MINUTE_SECOND":
-                        return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE_TO_SECOND;
-                    default:
-                        // Default fallback to YEAR if unknown
-                        return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
-                }
-            }
-        });
+    private static boolean isTimeStampUDT(RelDataType relDataType) {
+        if (relDataType.getClass().equals(ExprSqlType.class)) {
+            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
+            return exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP);
+        }
+        return false;
     }
 
-    private static RexNode updateTimeStampFunction(RexNode rexNode, RexBuilder rexBuilder) {
+    private static boolean isExtractFunction(RexCall rexCall) {
+      return rexCall.getKind() == SqlKind.OTHER_FUNCTION
+              && rexCall.getOperator() == PPLBuiltinOperators.EXTRACT;
+    }
+
+    private static org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
+        // Map given time unit strings to Calcite TimeUnitRange
+        switch (timeUnitStr.toUpperCase()) {
+            case "YEAR_MONTH":
+                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
+            case "YEAR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
+            case "MONTH":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
+            case "DAY":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
+            case "HOUR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
+            case "MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
+            case "SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
+            case "QUARTER":
+                return org.apache.calcite.avatica.util.TimeUnitRange.QUARTER;
+            case "WEEK":
+                return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
+            case "MICROSECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MICROSECOND;
+            case "DAY_HOUR":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
+            case "DAY_MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
+            case "DAY_SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
+            case "HOUR_MINUTE":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
+            case "HOUR_SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
+            case "MINUTE_SECOND":
+                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE_TO_SECOND;
+            default:
+                // Default fallback to YEAR if unknown
+                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
+        }
+    }
+
+    private static RexNode updateUDF(RexNode rexNode, RexBuilder rexBuilder) {
+        // Handle Extract Function
+        if (rexNode instanceof RexCall rexCall && isExtractFunction(rexCall)) {
+            List<RexNode> originalOperands = rexCall.getOperands();
+            List<RexNode> updatedOperands = new ArrayList<>();
+            for (RexNode operand : originalOperands) {
+                // Convert string time unit to proper TimeUnitRange flag, this is required for Substrait compatibility
+                if (operand instanceof RexLiteral timeUnitOperand) {
+                    String timeUnitStr = timeUnitOperand.getValueAs(String.class);
+                    // Map the string to proper TimeUnitRange enum
+                    org.apache.calcite.avatica.util.TimeUnitRange timeUnitRange = mapStringToTimeUnitRange(timeUnitStr);
+                    RexNode timeUnitFlag = rexBuilder.makeFlag(timeUnitRange);
+                    updatedOperands.add(timeUnitFlag);
+                } else {
+                    updatedOperands.add(operand);
+                }
+            }
+            return rexBuilder.makeCall(rexCall.getOperator(), updatedOperands);
+        }
+
+        // Handle TimeStamp Function
         if(rexNode instanceof RexCall rexCall) {
             List<RexNode> originalOperands = rexCall.getOperands();
             List<RexNode> updatedOperands = new ArrayList<>();
@@ -934,33 +898,12 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     org.apache.calcite.rel.type.RelDataType timestampType = rexBuilder.getTypeFactory().createSqlType(SqlTypeName.TIMESTAMP, 3);
                     updatedOperands.add(rexBuilder.makeInputRef(timestampType,  timeStampInput.getIndex()));
                 } else {
-                    updatedOperands.add(updateTimeStampFunction(operand, rexBuilder));
+                    updatedOperands.add(updateUDF(operand, rexBuilder));
                 }
             }
             return rexBuilder.makeCall(rexCall.pos, rexCall.type, rexCall.getOperator(), updatedOperands);
         }
         return rexNode;
-    }
-
-    private static boolean isTimeStampUDT(RelDataType relDataType) {
-        if (relDataType.getClass().equals(ExprSqlType.class)) {
-            ExprSqlType exprSqlType = (ExprSqlType) relDataType;
-            return exprSqlType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_TIMESTAMP);
-        }
-        return false;
-    }
-
-    private static RelNode convertTimestamp(RelNode relNode) {
-        return relNode.accept(new RelShuttleImpl() {
-
-            @Override
-            public RelNode visit(LogicalFilter logicalFilter) {
-                RelNode newInput = logicalFilter.getInput().accept(this);
-                RexNode originalCondition = logicalFilter.getCondition();
-                RexNode updatedCondition = updateTimeStampFunction(originalCondition, logicalFilter.getCluster().getRexBuilder());
-                return LogicalFilter.create(newInput, updatedCondition);
-            }
-        });
     }
 
     private static RelNode ensureCountAggregate(RelNode relNode) {
@@ -1026,6 +969,76 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                         return project;
                     }
                 });
+    }
+
+    private static RelNode preprocessRelNodes(RelNode relNode) {
+        return relNode.accept(new RelShuttleImpl() {
+            
+            @Override
+            public RelNode visit(LogicalProject logicalProject) {
+                RelNode newInput = logicalProject.getInput().accept(this);
+                System.out.println("-> LogicalProject");
+                List<RexNode> updatedProjects = logicalProject.getProjects().stream()
+                    .map(project -> updateUDF(project, logicalProject.getCluster().getRexBuilder()))
+                    .collect(Collectors.toList());
+                
+                return LogicalProject.create(
+                    newInput,
+                    logicalProject.getHints(),
+                    updatedProjects,
+                    logicalProject.getRowType()
+                );
+            }
+
+            @Override
+            public RelNode visit(LogicalFilter logicalFilter) {
+                RelNode newInput = logicalFilter.getInput().accept(this);
+                System.out.println("-> LogicalFilter");
+                RexNode originalCondition = logicalFilter.getCondition();
+                RexNode updatedCondition = updateUDF(originalCondition, logicalFilter.getCluster().getRexBuilder());
+                return LogicalFilter.create(newInput, updatedCondition);
+            }
+
+            @Override
+            public RelNode visit(LogicalAggregate logicalAggregate) {
+                RelNode newInput = logicalAggregate.getInput().accept(this);
+                // Your transformation logic here
+                System.out.println("-> LogicalAggregate");
+                return LogicalAggregate.create(
+                    newInput,
+                    logicalAggregate.getHints(),
+                    logicalAggregate.getGroupSet(),
+                    logicalAggregate.getGroupSets(),
+                    logicalAggregate.getAggCallList()
+                );
+            }
+
+            @Override
+            public RelNode visit(TableScan tableScan) {
+                if (tableScan instanceof CalciteLogicalIndexScan indexScan) {
+                    System.out.println("-> CalciteLogicalIndexScan");
+                }
+                return tableScan;
+            }
+
+            @Override
+            public RelNode visit(RelNode other) {
+                if (other instanceof LogicalSystemLimit) {
+                    LogicalSystemLimit limit = (LogicalSystemLimit) other;
+                    RelNode newInput = limit.getInput().accept(this);
+                    // Your transformation logic here
+                    System.out.println("-> LogicalSystemLimit");
+                    return LogicalSystemLimit.create(
+                        limit.getType(),
+                        newInput,
+                        limit.getCollation(),
+                        limit.offset,
+                        limit.fetch
+                    );
+                }
+                return super.visit(other);
+            }
+        });
     }
 
 }
