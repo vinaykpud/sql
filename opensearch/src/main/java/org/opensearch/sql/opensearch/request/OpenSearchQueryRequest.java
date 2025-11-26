@@ -95,6 +95,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_2;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_3;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
 import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
 import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
@@ -434,10 +436,12 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
+      //Mapping of Function names in Calcite to Substrait
         List<FunctionMappings.Sig> customSigs = List.of(
                 new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "extract"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "strftime"),
-                new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "strftime")
+                new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "strftime"),
+                new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace")
         );
 
         TypeConverter typeConverter = new TypeConverter(
@@ -866,7 +870,22 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         }
     }
 
+    private static boolean isReplace(RexCall rexCall) {
+      return true;
+    }
+
     private static RexNode updateUDF(RexNode rexNode, RexBuilder rexBuilder) {
+
+      if (rexNode instanceof RexCall rexCall && isReplace(rexCall)) {
+          List<RexNode> originalOperands = rexCall.getOperands();
+          List<RexNode> updatedOperands = new ArrayList<>();
+          for (RexNode operand : originalOperands) {
+              if (operand instanceof RexLiteral stringLiteral) {
+
+              }
+          }
+      }
+
         // Handle Extract Function
         if (rexNode instanceof RexCall rexCall && isExtractFunction(rexCall)) {
             List<RexNode> originalOperands = rexCall.getOperands();
