@@ -113,7 +113,16 @@ import static org.opensearch.search.sort.SortOrder.ASC;
 @ToString
 public class OpenSearchQueryRequest implements OpenSearchRequest {
 
-  private static final SimpleExtension.ExtensionCollection EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION;
+  private static final SimpleExtension.ExtensionCollection EXTENSIONS;
+
+  static {
+    try {
+      SimpleExtension.ExtensionCollection customExtension = SimpleExtension.load(List.of("/opensearch_custom_functions.yaml"));
+      EXTENSIONS = DefaultExtensionCatalog.DEFAULT_COLLECTION.merge(customExtension);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to load custom extensions", e);
+    }
+  }
 
   public static final String INJECTED_COUNT_AGGREGATE_NAME = "agg_for_doc_count";
 
@@ -434,9 +443,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
       //Mapping of Function names in Calcite to Substrait
         List<FunctionMappings.Sig> customSigs = List.of(
-                new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "extract"),
-                new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "strftime"),
-                new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "strftime"),
+                new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "date_part"),
+                new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "date_format"),
+                new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "date_format"),
                 new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace"),
                 new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, "like")
         );
@@ -708,45 +717,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         return rexCall.getOperator() == SqlLibraryOperators.ILIKE;
     }
 
-    private static org.apache.calcite.avatica.util.TimeUnitRange mapStringToTimeUnitRange(String timeUnitStr) {
-        // Map given time unit strings to Calcite TimeUnitRange
-        switch (timeUnitStr.toUpperCase()) {
-            case "MICROSECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MICROSECOND;
-            case "SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.SECOND;
-            case "MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE;
-            case "HOUR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR;
-            case "DAY":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY;
-            case "WEEK":
-                return org.apache.calcite.avatica.util.TimeUnitRange.WEEK;
-            case "MONTH":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MONTH;
-            case "YEAR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR;
-            case "MINUTE_SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.MINUTE_TO_SECOND;
-            case "HOUR_SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_SECOND;
-            case "HOUR_MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.HOUR_TO_MINUTE;
-            case "DAY_SECOND":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_SECOND;
-            case "DAY_MINUTE":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_MINUTE;
-            case "DAY_HOUR":
-                return org.apache.calcite.avatica.util.TimeUnitRange.DAY_TO_HOUR;
-            case "YEAR_MONTH":
-                return org.apache.calcite.avatica.util.TimeUnitRange.YEAR_TO_MONTH;
-            default:
-                throw new UnsupportedOperationException(
-                    "Time unit '" + timeUnitStr + "' is not supported");
-        }
-    }
-
     private static RexNode updateUDF(RexNode rexNode, RexBuilder rexBuilder) {
         // Handle SPAN Function
         if (rexNode instanceof RexCall rexCall && isSpanFunction(rexCall)) {
@@ -775,25 +745,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
                 return rexBuilder.makeCall(rexCall.getOperator(), upperField, upperPattern);
             }
-        }
-
-        // Handle Extract Function
-        if (rexNode instanceof RexCall rexCall && isExtractFunction(rexCall)) {
-            List<RexNode> originalOperands = rexCall.getOperands();
-            List<RexNode> updatedOperands = new ArrayList<>();
-            for (RexNode operand : originalOperands) {
-                // Convert string time unit to proper TimeUnitRange flag, this is required for Substrait compatibility
-                if (operand instanceof RexLiteral timeUnitOperand) {
-                    String timeUnitStr = timeUnitOperand.getValueAs(String.class);
-                    // Map the string to proper TimeUnitRange enum
-                    org.apache.calcite.avatica.util.TimeUnitRange timeUnitRange = mapStringToTimeUnitRange(timeUnitStr);
-                    RexNode timeUnitFlag = rexBuilder.makeFlag(timeUnitRange);
-                    updatedOperands.add(timeUnitFlag);
-                } else {
-                    updatedOperands.add(operand);
-                }
-            }
-            return rexBuilder.makeCall(rexCall.getOperator(), updatedOperands);
         }
 
         // Handle TimeStamp Function
