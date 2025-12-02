@@ -1,0 +1,23 @@
+%YAML 1.2
+---
+urn: extension:org.opensearch:custom_functions
+scalar_functions:
+  - name: date_format
+    description: Format a timestamp using a format string
+    impls:
+      - args:
+          - name: timestamp
+            value: precision_timestamp<P>
+          - name: format
+            value: string
+        return: string
+  - name: date_part
+    description: Extract a part from a timestamp
+    impls:
+      - args:
+          - name: part
+            value: string
+          - name: timestamp
+            value: precision_timestamp<P>
+        return: i64
+

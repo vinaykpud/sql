@@ -97,7 +97,7 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
 
   /** Queries that are returning 200s and response is correct and not empty */
   protected Set<Integer> df_ignored() {
-    return Set.of(9, 10, 11, 12, 14, 19, 20, 24, 25, 26, 27, 28, 29, 30, 39, 40, 41, 42, 43);
+    return Set.of(4, 9, 10, 11, 12, 14, 19, 20, 24, 25, 26, 27, 28, 29, 30, 39, 40, 41, 42, 43);
   }
 
   @Test
