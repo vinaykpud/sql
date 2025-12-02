@@ -187,6 +187,7 @@ configurations.all {
     resolutionStrategy.force "com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:${versions.jackson}"
     resolutionStrategy.force "com.squareup.okhttp3:okhttp:4.12.0"
     resolutionStrategy.force "org.apache.httpcomponents:httpcore:4.4.13"
+    resolutionStrategy.force "org.apache.httpcomponents:httpclient:4.5.14"
     resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10"
     resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10"
     resolutionStrategy.force "joda-time:joda-time:2.10.12"
