@@ -703,11 +703,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         return false;
     }
 
-    private static boolean isExtractFunction(RexCall rexCall) {
-      return rexCall.getKind() == SqlKind.OTHER_FUNCTION
-              && rexCall.getOperator() == PPLBuiltinOperators.EXTRACT;
-    }
-
     private static boolean isSpanFunction(RexCall rexCall) {
         return rexCall.getKind() == SqlKind.OTHER_FUNCTION
             && rexCall.getOperator().getName().equalsIgnoreCase(BuiltinFunctionName.SPAN.name());
