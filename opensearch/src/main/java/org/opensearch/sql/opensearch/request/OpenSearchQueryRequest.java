@@ -95,7 +95,6 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_2;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_3;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
 import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
@@ -384,7 +383,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
     public static byte[] convertToSubstraitAndSerialize(OpenSearchExprValueFactory index) {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-
+        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOGGER.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
@@ -829,14 +828,14 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
     private static RelNode preprocessRelNodes(RelNode relNode) {
         return relNode.accept(new RelShuttleImpl() {
-            
+
             @Override
             public RelNode visit(LogicalProject logicalProject) {
                 RelNode newInput = logicalProject.getInput().accept(this);
                 List<RexNode> updatedProjects = logicalProject.getProjects().stream()
                     .map(project -> updateUDF(project, logicalProject.getCluster().getRexBuilder()))
                     .collect(Collectors.toList());
-                
+
                 return LogicalProject.create(
                     newInput,
                     logicalProject.getHints(),
