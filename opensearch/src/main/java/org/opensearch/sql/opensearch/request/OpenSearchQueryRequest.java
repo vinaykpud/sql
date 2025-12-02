@@ -58,7 +58,6 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
-import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
@@ -93,17 +92,14 @@ import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.PPLBuiltinOperators;
-import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
-import org.opensearch.sql.opensearch.storage.scan.CalciteLogicalIndexScan;
 
 import java.util.HashMap;
 import java.util.stream.Collectors;
 
-import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_2;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_3;
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
 
@@ -435,7 +431,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
     public static byte[] convertToSubstraitAndSerialize(OpenSearchExprValueFactory index) {
         RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-
+        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
