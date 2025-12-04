@@ -396,19 +396,18 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               outputFields.subList(0, aggregate.getGroupSet().cardinality()));
 
       // Store the input Project node BEFORE the Aggregate
-      // This Project comes between the Aggregate and the Scan in the pattern: Agg → Project → Scan
-      // It's critical for correct field index mapping in the Substrait conversion
-      // IMPORTANT: Use OSRequestBuilderAction (not AggregationBuilderAction) so it's added to
-      // operationsForRequestBuilder and comes BEFORE the aggregate in iteration order
+      // This Project comes between the Aggregate and the Filter in the pattern: Agg → Project → Filter
       if (project != null) {
-        LOG.info("Project to add: {}", project);
-        // Create a no-op OSRequestBuilderAction (not AggregationBuilderAction!)
-        // This ensures the Project is added to operationsForRequestBuilder, not operationsForAgg
-        OSRequestBuilderAction projectAction = requestBuilder -> {};
-        newScan.pushDownContext.add(PushDownType.PROJECT, project.getRowType().getFieldNames(), projectAction, project);
+          LOG.info("Project to add: {}", project);
+          // Create a no-op OSRequestBuilderAction (not AggregationBuilderAction!)
+          // This ensures the Project is added to operationsForRequestBuilder, not operationsForAgg
+          // no-op since we don't need to modify the OpenSearch query, we only need RelNode for Substrait conversion
+          // We're using OSRequestBuilderAction for its routing behavior, It ensures the operation goes to
+          // operationsForRequestBuilder (not operationsForAgg)
+          OSRequestBuilderAction projectAction = requestBuilder -> {};
+          newScan.pushDownContext.add(PushDownType.PROJECT, project.getRowType().getFieldNames(), projectAction, project);
       }
-
-      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);  // Store the Aggregate RelNode
+      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);
       return newScan;
     } catch (Exception e) {
         LOG.info("Cannot pushdown the aggregate {}", aggregate, e);

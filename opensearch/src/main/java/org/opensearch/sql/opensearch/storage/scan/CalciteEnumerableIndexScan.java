@@ -30,7 +30,6 @@ import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.opensearch.sql.calcite.plan.OpenSearchRules;
 import org.opensearch.sql.calcite.plan.Scannable;
-import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.scan.context.PushDownContext;
@@ -115,7 +114,6 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
     RelNode pushedDownTree = null;
     try {
       if (pushDownContext != null && !pushDownContext.isEmpty()) {
-        // Log all stored RelNodes in PushDownContext
         LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
         int index = 0;
         for (var operation : pushDownContext) {
@@ -126,16 +124,8 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
         }
         
         // Create a base CalciteLogicalIndexScan for reconstruction
-        CalciteLogicalIndexScan baseScan = new CalciteLogicalIndexScan(
-            getCluster(),
-            getTable(),
-            osIndex);
-        
-        LOG.info("Base scan for reconstruction: {}", baseScan);
-        
-        // Reconstruct the complete RelNode tree from push-down operations
-        pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(baseScan);
-        
+        CalciteLogicalIndexScan logicalIndexScan = new CalciteLogicalIndexScan(getCluster(), getTable(), osIndex);
+        pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(logicalIndexScan);
         LOG.info("Reconstructed pushed-down RelNode tree:\n{}", pushedDownTree.explain());
       }
     } catch (Exception e) {

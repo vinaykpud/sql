@@ -6,18 +6,42 @@
 package org.opensearch.sql.opensearch.storage.scan.context;
 
 import com.google.common.collect.Iterators;
+
+import java.sql.Connection;
 import java.util.AbstractCollection;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
 import lombok.Getter;
+import org.apache.calcite.rel.RelNode;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.calcite.rel.core.AggregateCall;
+import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalSort;
+import org.apache.calcite.rex.RexLiteral;
+import org.apache.calcite.tools.FrameworkConfig;
+import org.apache.calcite.tools.Frameworks;
+import org.apache.calcite.tools.RelBuilder;
 import org.jetbrains.annotations.NotNull;
+import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
+import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
+import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 
 /** Push down context is used to store all the push down operations that are applied to the query */
 @Getter
 public class PushDownContext extends AbstractCollection<PushDownOperation> {
+  private static final Logger LOGGER = LogManager.getLogger(PushDownContext.class);
+  
   private final OpenSearchIndex osIndex;
   private final OpenSearchRequestBuilder requestBuilder;
   private ArrayDeque<PushDownOperation> operationsForRequestBuilder;
@@ -124,7 +148,7 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
     add(new PushDownOperation(type, digest, action));
   }
   
-  public void add(PushDownType type, Object digest, AbstractAction<?> action, org.apache.calcite.rel.RelNode relNode) {
+  public void add(PushDownType type, Object digest, AbstractAction<?> action, RelNode relNode) {
     add(new PushDownOperation(type, digest, action, relNode));
   }
 
@@ -145,32 +169,23 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
    * Reconstruct the complete pushed-down RelNode tree from stored operations.
    * Builds: Scan → Filter → Project → Aggregate → Limit
    * 
-   * @param baseScan The base CalciteLogicalIndexScan to start from
+   * @param logicalIndexScan The base CalciteLogicalIndexScan to start from
    * @return The complete RelNode tree with all push-downs applied
    */
-  public org.apache.calcite.rel.RelNode reconstructPushedDownRelNodeTree(
-      org.apache.calcite.rel.RelNode baseScan) {
-    org.apache.calcite.rel.RelNode current = baseScan;
-    
-    // Convert to list for lookahead
-    java.util.List<PushDownOperation> operations = new java.util.ArrayList<>();
-    this.forEach(operations::add);
-    
-    int step = 0;
-    for (int i = 0; i < operations.size(); i++) {
-      PushDownOperation operation = operations.get(i);
-      org.apache.calcite.rel.RelNode storedRelNode = operation.relNode();
-      if (storedRelNode != null) {
-        org.apache.calcite.rel.RelNode before = current;
-        current = replaceInput(storedRelNode, current);
-        System.out.println(String.format("  Step %d: Applied %s", step, operation.type()));
-        System.out.println(String.format("    Before: %s", before));
-        System.out.println(String.format("    After:  %s", current));
-        step++;
+  public RelNode reconstructPushedDownRelNodeTree(RelNode logicalIndexScan) {
+      RelNode current = logicalIndexScan;
+      List<PushDownOperation> pushDownOperations = new ArrayList<>(this);
+
+      for (PushDownOperation pushDownOperation : pushDownOperations) {
+          RelNode storedRelNode = pushDownOperation.relNode();
+          if (storedRelNode != null) {
+              LOGGER.info("RelNode: {}", storedRelNode);
+              RelNode before = current;
+              current = replaceInput(storedRelNode, current);
+              LOGGER.info("{} being added as input to {}", before, current);
+          }
       }
-    }
-    
-    return current;
+      return current;
   }
   
   /**
@@ -178,49 +193,40 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
    * Creates a new RelNode instance with the updated input and properly derived row type.
    * Uses RelBuilder to ensure proper row type derivation.
    */
-  private org.apache.calcite.rel.RelNode replaceInput(
-      org.apache.calcite.rel.RelNode relNode, 
-      org.apache.calcite.rel.RelNode newInput) {
+  private RelNode replaceInput(RelNode relNode, RelNode newInput) {
     
     // Create a RelBuilder for proper row type derivation
-    org.apache.calcite.tools.FrameworkConfig config = 
-        org.apache.calcite.tools.Frameworks.newConfigBuilder()
-            .typeSystem(org.opensearch.sql.executor.OpenSearchTypeSystem.INSTANCE)
+    FrameworkConfig config =
+        Frameworks.newConfigBuilder()
+            .typeSystem(OpenSearchTypeSystem.INSTANCE)
             .build();
-    java.sql.Connection connection = 
-        org.opensearch.sql.calcite.utils.CalciteToolsHelper.connect(
+    Connection connection = CalciteToolsHelper.connect(config, OpenSearchTypeFactory.TYPE_FACTORY);
+    RelBuilder builder =
+        CalciteToolsHelper.create(
             config, 
-            org.opensearch.sql.calcite.utils.OpenSearchTypeFactory.TYPE_FACTORY);
-    org.apache.calcite.tools.RelBuilder builder = 
-        org.opensearch.sql.calcite.utils.CalciteToolsHelper.create(
-            config, 
-            org.opensearch.sql.calcite.utils.OpenSearchTypeFactory.TYPE_FACTORY, 
+            OpenSearchTypeFactory.TYPE_FACTORY,
             connection);
     
     builder.push(newInput);
     
-    if (relNode instanceof org.apache.calcite.rel.logical.LogicalFilter) {
-      org.apache.calcite.rel.logical.LogicalFilter filter = 
-          (org.apache.calcite.rel.logical.LogicalFilter) relNode;
-      // Use RelBuilder.filter() to properly derive row type
+    if (relNode instanceof LogicalFilter filter) {
+        // Use RelBuilder.filter() to properly derive row type
       builder.filter(filter.getCondition());
       return builder.build();
     }
     
-    if (relNode instanceof org.apache.calcite.rel.logical.LogicalAggregate) {
-      org.apache.calcite.rel.logical.LogicalAggregate agg = 
-          (org.apache.calcite.rel.logical.LogicalAggregate) relNode;
-      
-      // Convert AggregateCall list to RelBuilder.AggCall list
-      java.util.List<org.apache.calcite.tools.RelBuilder.AggCall> aggCalls = 
+    if (relNode instanceof LogicalAggregate agg) {
+
+        // Convert AggregateCall list to RelBuilder.AggCall list
+      List<RelBuilder.AggCall> aggCalls =
           new java.util.ArrayList<>();
-      for (org.apache.calcite.rel.core.AggregateCall aggCall : agg.getAggCallList()) {
+      for (AggregateCall aggCall : agg.getAggCallList()) {
         aggCalls.add(
             builder.aggregateCall(
                 aggCall.getAggregation(),
                 aggCall.getArgList().stream()
                     .map(builder::field)
-                    .collect(java.util.stream.Collectors.toList()))
+                    .collect(Collectors.toList()))
                 .distinct(aggCall.isDistinct())
                 .as(aggCall.getName()));
       }
@@ -232,60 +238,21 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
       return builder.build();
     }
     
-    if (relNode instanceof org.apache.calcite.rel.logical.LogicalProject) {
-      org.apache.calcite.rel.logical.LogicalProject proj = 
-          (org.apache.calcite.rel.logical.LogicalProject) relNode;
-      // Use RelBuilder.project() to properly derive row type
+    if (relNode instanceof LogicalProject proj) {
+        // Use RelBuilder.project() to properly derive row type
       builder.project(proj.getProjects(), proj.getRowType().getFieldNames());
       return builder.build();
     }
     
-    if (relNode instanceof org.apache.calcite.rel.logical.LogicalSort) {
-      org.apache.calcite.rel.logical.LogicalSort sort = 
-          (org.apache.calcite.rel.logical.LogicalSort) relNode;
-      // Use RelBuilder.sort() to properly derive row type
+    if (relNode instanceof LogicalSort sort) {
+        // Use RelBuilder.sort() to properly derive row type
       builder.sortLimit(
-          sort.offset != null ? ((org.apache.calcite.rex.RexLiteral) sort.offset).getValueAs(Integer.class) : -1,
-          sort.fetch != null ? ((org.apache.calcite.rex.RexLiteral) sort.fetch).getValueAs(Integer.class) : -1,
+          sort.offset != null ? Objects.requireNonNull(((RexLiteral) sort.offset).getValueAs(Integer.class)) : -1,
+          sort.fetch != null ? Objects.requireNonNull(((RexLiteral) sort.fetch).getValueAs(Integer.class)) : -1,
           builder.fields(sort.getCollation()));
       return builder.build();
     }
-    
-    // Fallback code commented out - we only handle Logical* types with RelBuilder
-    // If we encounter other types, throw an exception to make it explicit
-    /*
-    // Fallback to copy() for other RelNode types
-    if (relNode instanceof org.apache.calcite.rel.core.Filter) {
-      org.apache.calcite.rel.core.Filter filter = (org.apache.calcite.rel.core.Filter) relNode;
-      return filter.copy(filter.getTraitSet(), newInput, filter.getCondition());
-    }
-    
-    if (relNode instanceof org.apache.calcite.rel.core.Aggregate) {
-      org.apache.calcite.rel.core.Aggregate agg = (org.apache.calcite.rel.core.Aggregate) relNode;
-      return agg.copy(
-          agg.getTraitSet(),
-          newInput,
-          agg.getGroupSet(),
-          agg.getGroupSets(),
-          agg.getAggCallList());
-    }
-    
-    if (relNode instanceof org.apache.calcite.rel.core.Project) {
-      org.apache.calcite.rel.core.Project proj = (org.apache.calcite.rel.core.Project) relNode;
-      return proj.copy(proj.getTraitSet(), newInput, proj.getProjects(), proj.getRowType());
-    }
-    
-    if (relNode instanceof org.apache.calcite.rel.core.Sort) {
-      org.apache.calcite.rel.core.Sort sort = (org.apache.calcite.rel.core.Sort) relNode;
-      return sort.copy(
-          sort.getTraitSet(),
-          newInput,
-          sort.getCollation(),
-          sort.offset,
-          sort.fetch);
-    }
-    */
-    
+
     // If we don't know how to handle this RelNode type, throw an exception
     throw new UnsupportedOperationException(
         "Unsupported RelNode type for reconstruction: " + relNode.getClass().getName());
