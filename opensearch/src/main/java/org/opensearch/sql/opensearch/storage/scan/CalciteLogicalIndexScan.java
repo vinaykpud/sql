@@ -18,6 +18,7 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
+import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
@@ -133,6 +134,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
     } else {
       planner.addRule(OpenSearchIndexRules.RELEVANCE_FUNCTION_PUSHDOWN);
     }
+    
+    // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
+    // This is needed for Substrait compatibility which doesn't support SEARCH operations
+    planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
   }
 
   public AbstractRelNode pushDownFilter(Filter filter) {
@@ -148,6 +153,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               filter.getCondition(), schema, fieldTypes, rowType, getCluster());
       // TODO: handle the case where condition contains a score function
       CalciteLogicalIndexScan newScan = this.copy();
+      
+      // Log the filter condition being stored to check if SEARCH optimization already happened
+      LOG.info("Filter condition being stored: {}", filter.getCondition());
+      
       newScan.pushDownContext.add(
           queryExpression.getScriptCount() > 0 ? PushDownType.SCRIPT : PushDownType.FILTER,
           new FilterDigest(
