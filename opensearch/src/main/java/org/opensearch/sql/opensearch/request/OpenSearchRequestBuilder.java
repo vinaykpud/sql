@@ -21,7 +21,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.ToString;
+import org.apache.calcite.rel.RelNode;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.lucene.search.join.ScoreMode;
 import org.opensearch.action.search.CreatePitRequest;
@@ -73,6 +75,17 @@ public class OpenSearchRequestBuilder {
 
   @ToString.Exclude private final Settings settings;
 
+  /** RelNode tree for pushed-down operations (optional).
+   * -- SETTER --
+   *  Set the RelNode tree for pushed-down operations.
+   *  This allows passing the reconstructed RelNode tree to be converted to Substrait later.
+   *
+   * @param pushedDownRelNodeTree RelNode tree representing pushed-down operations
+   */
+  @Setter
+  @EqualsAndHashCode.Exclude @ToString.Exclude
+  private org.apache.calcite.rel.RelNode pushedDownRelNodeTree = null;
+
   public static class PushDownUnSupportedException extends RuntimeException {
     public PushDownUnSupportedException(String message) {
       super(message);
@@ -92,7 +105,8 @@ public class OpenSearchRequestBuilder {
     this.exprValueFactory = exprValueFactory;
   }
 
-  /**
+
+    /**
    * Build DSL request.
    *
    * @return query request with PIT or scroll request
@@ -112,7 +126,8 @@ public class OpenSearchRequestBuilder {
      * 2. If mapping is empty. It means no data in the index. PIT search relies on `_id` fields to do sort, thus it will fail if using PIT search in this case.
      */
     if (sourceBuilder.size() == 0 || isMappingEmpty) {
-      return new OpenSearchQueryRequest(indexName, sourceBuilder, exprValueFactory, List.of());
+      return new OpenSearchQueryRequest(
+          indexName, sourceBuilder, exprValueFactory, List.of(), pushedDownRelNodeTree);
     }
     return buildRequestWithPit(indexName, cursorKeepAlive, client);
   }
@@ -129,12 +144,13 @@ public class OpenSearchRequestBuilder {
         // Search with PIT request
         String pitId = createPit(indexName, cursorKeepAlive, client);
         return new OpenSearchQueryRequest(
-            indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId);
+            indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
       } else {
         sourceBuilder.from(startFrom);
         sourceBuilder.size(size);
         // Search with non-Pit request
-        return new OpenSearchQueryRequest(indexName, sourceBuilder, exprValueFactory, includes);
+        return new OpenSearchQueryRequest(
+            indexName, sourceBuilder, exprValueFactory, includes, pushedDownRelNodeTree);
       }
     } else {
       if (startFrom != 0) {
@@ -144,7 +160,7 @@ public class OpenSearchRequestBuilder {
       // Search with PIT request
       String pitId = createPit(indexName, cursorKeepAlive, client);
       return new OpenSearchQueryRequest(
-          indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId);
+          indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
     }
   }
 

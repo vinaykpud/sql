@@ -151,6 +151,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
   private SearchResponse searchResponse = null;
 
+  /** RelNode tree for pushed-down operations (optional). */
+  @EqualsAndHashCode.Exclude @ToString.Exclude
+  private final org.apache.calcite.rel.RelNode pushedDownRelNodeTree;
+
     private static final Logger LOGGER =
             LogManager.getLogger(OpenSearchQueryRequest.class);
 
@@ -170,6 +174,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     sourceBuilder.timeout(DEFAULT_QUERY_TIMEOUT);
     this.exprValueFactory = factory;
     this.includes = includes;
+    this.pushedDownRelNodeTree = null;
   }
 
   /** Constructor of OpenSearchQueryRequest. */
@@ -178,10 +183,21 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       SearchSourceBuilder sourceBuilder,
       OpenSearchExprValueFactory factory,
       List<String> includes) {
+    this(indexName, sourceBuilder, factory, includes, (RelNode) null);
+  }
+
+  /** Constructor of OpenSearchQueryRequest with RelNode tree support. */
+  public OpenSearchQueryRequest(
+      IndexName indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes,
+      RelNode pushedDownRelNodeTree) {
     this.indexName = indexName;
     this.sourceBuilder = sourceBuilder;
     this.exprValueFactory = factory;
     this.includes = includes;
+    this.pushedDownRelNodeTree = pushedDownRelNodeTree;
   }
 
   /** Constructor of OpenSearchQueryRequest with PIT support. */
@@ -192,12 +208,25 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       List<String> includes,
       TimeValue cursorKeepAlive,
       String pitId) {
+    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null);
+  }
+
+  /** Constructor of OpenSearchQueryRequest with PIT and RelNode tree support. */
+  public OpenSearchQueryRequest(
+      IndexName indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes,
+      TimeValue cursorKeepAlive,
+      String pitId,
+      RelNode pushedDownRelNodeTree) {
     this.indexName = indexName;
     this.sourceBuilder = sourceBuilder;
     this.exprValueFactory = factory;
     this.includes = includes;
     this.cursorKeepAlive = cursorKeepAlive;
     this.pitId = pitId;
+    this.pushedDownRelNodeTree = pushedDownRelNodeTree;
   }
 
   /** true if the request is a count aggregation request. */
@@ -243,6 +272,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     exprValueFactory =
         new OpenSearchExprValueFactory(
             index.getFieldOpenSearchTypes(), index.isFieldTypeTolerance());
+    
+    // RelNode tree is not serialized/deserialized for now
+    // It is only used during the initial query execution
+    this.pushedDownRelNodeTree = null;
   }
 
   @Override
@@ -258,7 +291,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // get the value before set searchDone = true
         boolean isCountAggRequest = isCountAggRequest();
         searchDone = true;
-        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(exprValueFactory));
+        // Convert pushed-down RelNode tree to Substrait bytes
+        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
         return new OpenSearchResponse(
             searchAction.apply(
                 new SearchRequest().indices(indexName.getIndexNames()).source(sourceBuilder)),
@@ -280,7 +314,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
     } else {
       this.sourceBuilder.pointInTimeBuilder(new PointInTimeBuilder(this.pitId));
-      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(exprValueFactory));
+      // Convert pushed-down RelNode tree to Substrait bytes
+      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
       this.sourceBuilder.timeout(cursorKeepAlive);
       // check for search after
       if (searchAfter != null) {
@@ -381,9 +416,16 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
   }
 
-    public static byte[] convertToSubstraitAndSerialize(OpenSearchExprValueFactory index) {
-        RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
+    public static byte[] convertToSubstraitAndSerialize(RelNode relNode) {
+        // If relNode is null, get it from ThreadLocal (fallback for non-Calcite queries)
+//        relNode = null;
+        if (relNode == null) {
+            LOGGER.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
+            relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+            CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
+        } else {
+            LOGGER.info("RelNode provided directly from pushedDownRelNodeTree");
+        }
         LOGGER.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan

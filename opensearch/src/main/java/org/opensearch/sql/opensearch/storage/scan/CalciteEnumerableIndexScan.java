@@ -21,6 +21,7 @@ import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.hint.RelHint;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.type.RelDataType;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.opensearch.sql.calcite.plan.OpenSearchRules;
 import org.opensearch.sql.calcite.plan.Scannable;
+import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.scan.context.PushDownContext;
@@ -109,10 +111,49 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
    */
   @Override
   public Enumerable<@Nullable Object> scan() {
+    // Reconstruct pushed-down RelNode tree
+    RelNode pushedDownTree = null;
+    try {
+      if (pushDownContext != null && !pushDownContext.isEmpty()) {
+        // Log all stored RelNodes in PushDownContext
+        LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
+        int index = 0;
+        for (var operation : pushDownContext) {
+          LOG.info("  Operation {}: type={}, relNode={}", 
+              index++, 
+              operation.type(), 
+              operation.relNode() != null ? operation.relNode().toString() : "NULL");
+        }
+        
+        // Create a base CalciteLogicalIndexScan for reconstruction
+        CalciteLogicalIndexScan baseScan = new CalciteLogicalIndexScan(
+            getCluster(),
+            getTable(),
+            osIndex);
+        
+        LOG.info("Base scan for reconstruction: {}", baseScan);
+        
+        // Reconstruct the complete RelNode tree from push-down operations
+        pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(baseScan);
+        
+        LOG.info("Reconstructed pushed-down RelNode tree:\n{}", pushedDownTree.explain());
+      }
+    } catch (Exception e) {
+      LOG.error("Failed to reconstruct pushed-down RelNode tree", e);
+      throw new RuntimeException("Failed to reconstruct pushed-down RelNode tree", e);
+    }
+    
+    // Pass pushedDownTree to OpenSearchRequest via RequestBuilder
+    final RelNode finalPushedDownTree = pushedDownTree;
+    
     return new AbstractEnumerable<>() {
       @Override
       public Enumerator<Object> enumerator() {
         OpenSearchRequestBuilder requestBuilder = getOrCreateRequestBuilder();
+        // Set the RelNode tree on the request builder
+        if (finalPushedDownTree != null) {
+          requestBuilder.setPushedDownRelNodeTree(finalPushedDownTree);
+        }
         return new OpenSearchIndexEnumerator(
             osIndex.getClient(),
             getFieldPath(),

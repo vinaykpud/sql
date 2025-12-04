@@ -157,7 +157,8 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
                       queryExpression.getAnalyzedNodes(), getCluster().getRexBuilder())
                   : filter.getCondition()),
           (OSRequestBuilderAction)
-              requestBuilder -> requestBuilder.pushDownFilter(queryExpression.builder()));
+              requestBuilder -> requestBuilder.pushDownFilter(queryExpression.builder()),
+          filter);  // Store the Filter RelNode for Substrait conversion
 
       // If the query expression is partial, we need to replace the input of the filter with the
       // partial pushed scan and the filter condition with non-pushed-down conditions.
@@ -268,7 +269,17 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
           (OSRequestBuilderAction)
               requestBuilder -> requestBuilder.pushDownProjectStream(projectedFields.stream());
     }
-    newScan.pushDownContext.add(PushDownType.PROJECT, newSchema.getFieldNames(), action);
+    // Create a Project RelNode for Substrait conversion
+    org.apache.calcite.rex.RexBuilder rexBuilder = getCluster().getRexBuilder();
+    List<org.apache.calcite.rex.RexNode> projects = new java.util.ArrayList<>();
+    for (int columnIndex : selectedColumns) {
+      projects.add(rexBuilder.makeInputRef(this, columnIndex));
+    }
+    org.apache.calcite.rel.core.Project projectRelNode =
+        org.apache.calcite.rel.logical.LogicalProject.create(
+            this, java.util.Collections.emptyList(), projects, newSchema);
+    
+    newScan.pushDownContext.add(PushDownType.PROJECT, newSchema.getFieldNames(), action, projectRelNode);
     return newScan;
   }
 
@@ -383,7 +394,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               aggregationBuilder,
               extendedTypeMapping,
               outputFields.subList(0, aggregate.getGroupSet().cardinality()));
-      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action);
+      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);  // Store the Aggregate RelNode
       return newScan;
     } catch (Exception e) {
         LOG.info("Cannot pushdown the aggregate {}", aggregate, e);
@@ -414,7 +425,8 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
         newScan.pushDownContext.add(
             PushDownType.LIMIT,
             new LimitDigest(limit, offset),
-            (OSRequestBuilderAction) requestBuilder -> requestBuilder.pushDownLimit(limit, offset));
+            (OSRequestBuilderAction) requestBuilder -> requestBuilder.pushDownLimit(limit, offset),
+            sort);  // Store the Sort RelNode
         return newScan;
       }
     } catch (Exception e) {
