@@ -152,8 +152,13 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
       org.apache.calcite.rel.RelNode baseScan) {
     org.apache.calcite.rel.RelNode current = baseScan;
     
+    // Convert to list for lookahead
+    java.util.List<PushDownOperation> operations = new java.util.ArrayList<>();
+    this.forEach(operations::add);
+    
     int step = 0;
-    for (PushDownOperation operation : this) {
+    for (int i = 0; i < operations.size(); i++) {
+      PushDownOperation operation = operations.get(i);
       org.apache.calcite.rel.RelNode storedRelNode = operation.relNode();
       if (storedRelNode != null) {
         org.apache.calcite.rel.RelNode before = current;

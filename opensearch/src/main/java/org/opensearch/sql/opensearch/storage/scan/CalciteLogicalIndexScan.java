@@ -394,6 +394,20 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               aggregationBuilder,
               extendedTypeMapping,
               outputFields.subList(0, aggregate.getGroupSet().cardinality()));
+
+      // Store the input Project node BEFORE the Aggregate
+      // This Project comes between the Aggregate and the Scan in the pattern: Agg → Project → Scan
+      // It's critical for correct field index mapping in the Substrait conversion
+      // IMPORTANT: Use OSRequestBuilderAction (not AggregationBuilderAction) so it's added to
+      // operationsForRequestBuilder and comes BEFORE the aggregate in iteration order
+      if (project != null) {
+        LOG.info("Project to add: {}", project);
+        // Create a no-op OSRequestBuilderAction (not AggregationBuilderAction!)
+        // This ensures the Project is added to operationsForRequestBuilder, not operationsForAgg
+        OSRequestBuilderAction projectAction = requestBuilder -> {};
+        newScan.pushDownContext.add(PushDownType.PROJECT, project.getRowType().getFieldNames(), projectAction, project);
+      }
+
       newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);  // Store the Aggregate RelNode
       return newScan;
     } catch (Exception e) {
