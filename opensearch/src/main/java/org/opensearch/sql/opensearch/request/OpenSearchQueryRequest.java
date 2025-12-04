@@ -422,10 +422,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         if (relNode == null) {
             LOGGER.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
             relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-            CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         } else {
             LOGGER.info("RelNode provided directly from pushedDownRelNodeTree");
         }
+        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOGGER.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
