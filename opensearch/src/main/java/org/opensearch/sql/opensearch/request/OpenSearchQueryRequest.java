@@ -110,10 +110,7 @@ import java.util.HashMap;
 import java.util.stream.Collectors;
 
 import static org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_3;
-import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;
-import static org.opensearch.core.xcontent.DeprecationHandler.IGNORE_DEPRECATIONS;
-import static org.opensearch.search.sort.FieldSortBuilder.DOC_FIELD_NAME;
-import static org.opensearch.search.sort.SortOrder.ASC;
+import static org.apache.calcite.sql.fun.SqlLibraryOperators.SAFE_CAST;;
 
 /**
  * OpenSearch search request. This has to be stateful because it needs to:
@@ -168,7 +165,12 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
 
   @ToString.Exclude private Map<String, Object> afterKey;
 
-  @TestOnly
+  /** RelNode tree for pushed-down operations (optional). */
+  @EqualsAndHashCode.Exclude @ToString.Exclude
+  private final org.apache.calcite.rel.RelNode pushedDownRelNodeTree;
+
+
+    @TestOnly
   static OpenSearchQueryRequest of(
       String indexName, int size, OpenSearchExprValueFactory factory, List<String> includes) {
     SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
@@ -216,12 +218,39 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       List<String> includes,
       TimeValue cursorKeepAlive,
       String pitId) {
+    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null);
+  }
+
+    /** Constructor of OpenSearchQueryRequest with RelNode tree support. */
+    public OpenSearchQueryRequest(
+            IndexName indexName,
+            SearchSourceBuilder sourceBuilder,
+            OpenSearchExprValueFactory factory,
+            List<String> includes,
+            RelNode pushedDownRelNodeTree) {
+        this.indexName = indexName;
+        this.sourceBuilder = sourceBuilder;
+        this.exprValueFactory = factory;
+        this.includes = includes;
+        this.pushedDownRelNodeTree = pushedDownRelNodeTree;
+    }
+
+  /** Constructor of OpenSearchQueryRequest with PIT and RelNode tree support. */
+  public OpenSearchQueryRequest(
+      IndexName indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes,
+      TimeValue cursorKeepAlive,
+      String pitId,
+      RelNode pushedDownRelNodeTree) {
     this.indexName = indexName;
     this.sourceBuilder = sourceBuilder;
     this.exprValueFactory = factory;
     this.includes = includes;
     this.cursorKeepAlive = cursorKeepAlive;
     this.pitId = pitId;
+    this.pushedDownRelNodeTree = pushedDownRelNodeTree;
   }
 
   /** true if the request is a count aggregation request. */
@@ -267,6 +296,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     exprValueFactory =
         new OpenSearchExprValueFactory(
             index.getFieldOpenSearchTypes(), index.isFieldTypeTolerance());
+
+    // RelNode tree is not serialized/deserialized for now
+    // It is only used during the initial query execution
+    this.pushedDownRelNodeTree = null;
   }
 
   @Override
@@ -333,7 +366,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
     } else {
       this.sourceBuilder.pointInTimeBuilder(new PointInTimeBuilder(this.pitId));
-      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(exprValueFactory));
+      // Convert pushed-down RelNode tree to Substrait bytes
+      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
       this.sourceBuilder.timeout(cursorKeepAlive);
       // check for search after
       if (searchAfter != null) {
@@ -441,8 +475,13 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
   }
 
-    public static byte[] convertToSubstraitAndSerialize(OpenSearchExprValueFactory index) {
-        RelNode relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+    public static byte[] convertToSubstraitAndSerialize(RelNode relNode) {
+        if (relNode == null) {
+            LOGGER.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
+            relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+        } else {
+            LOGGER.info("RelNode provided directly from pushedDownRelNodeTree");
+        }
         CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
@@ -953,7 +992,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     return LogicalSystemLimit.create(
                         limit.getType(),
                         newInput,
-                        limit.getCollation(),
                         limit.offset,
                         limit.fetch
                     );

@@ -20,7 +20,9 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptTable;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.plan.RelTraitSet;
+import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.hint.RelHint;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.type.RelDataType;
@@ -29,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.opensearch.sql.calcite.plan.OpenSearchRules;
 import org.opensearch.sql.calcite.plan.Scannable;
+import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.scan.context.PushDownContext;
@@ -79,6 +82,10 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
     // remove this rule otherwise opensearch can't correctly interpret approx_count_distinct()
     // it is converted to cardinality aggregation in OpenSearch
     planner.removeRule(CoreRules.AGGREGATE_EXPAND_DISTINCT_AGGREGATES);
+
+    // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
+    // This is needed for Substrait compatibility which doesn't support SEARCH operations
+    planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
   }
 
   @Override
@@ -109,10 +116,41 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
    */
   @Override
   public Enumerable<@Nullable Object> scan() {
+    // Reconstruct pushed-down RelNode tree
+    RelNode pushedDownTree = null;
+    try {
+      if (pushDownContext != null && !pushDownContext.isEmpty()) {
+        LOG.info("Full RelNode tree:\n{}", RelOptUtil.toString(CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode()));
+        LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
+        int index = 0;
+        for (var operation : pushDownContext) {
+          LOG.info("  Operation {}: type={}, relNode={}",
+              index++,
+              operation.type(),
+              operation.relNode() != null ? operation.relNode().toString() : "NULL");
+        }
+
+        // Create a base CalciteLogicalIndexScan for reconstruction
+        CalciteLogicalIndexScan logicalIndexScan = new CalciteLogicalIndexScan(getCluster(), getTable(), osIndex);
+        pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(logicalIndexScan);
+        LOG.info("Reconstructed pushed-down RelNode tree:\n{}", pushedDownTree.explain());
+      }
+    } catch (Exception e) {
+      LOG.error("Failed to reconstruct pushed-down RelNode tree", e);
+      throw new RuntimeException("Failed to reconstruct pushed-down RelNode tree", e);
+    }
+
+    // Pass pushedDownTree to OpenSearchRequest via RequestBuilder
+    final RelNode finalPushedDownTree = pushedDownTree;
+
     return new AbstractEnumerable<>() {
       @Override
       public Enumerator<Object> enumerator() {
         OpenSearchRequestBuilder requestBuilder = pushDownContext.createRequestBuilder();
+        // Set the RelNode tree on the request builder
+        if (finalPushedDownTree != null) {
+          requestBuilder.setPushedDownRelNodeTree(finalPushedDownTree);
+        }
         return new OpenSearchIndexEnumerator(
             osIndex.getClient(),
             getRowType().getFieldNames(),

@@ -7,8 +7,18 @@ package org.opensearch.sql.opensearch.storage.scan.context;
 
 import java.util.AbstractCollection;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
+
 import lombok.Getter;
+import org.apache.calcite.rel.RelNode;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.calcite.rel.logical.LogicalAggregate;
+import org.apache.calcite.rel.logical.LogicalFilter;
+import org.apache.calcite.rel.logical.LogicalProject;
+import org.apache.calcite.rel.logical.LogicalSort;
 import org.jetbrains.annotations.NotNull;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder.PushDownUnSupportedException;
@@ -17,6 +27,8 @@ import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 /** Push down context is used to store all the push down operations that are applied to the query */
 @Getter
 public class PushDownContext extends AbstractCollection<PushDownOperation> {
+  private static final Logger LOGGER = LogManager.getLogger(PushDownContext.class);
+
   private final OpenSearchIndex osIndex;
   private ArrayDeque<PushDownOperation> queue = new ArrayDeque<>();
   private ArrayDeque<PushDownOperation> operationsForRequestBuilder;
@@ -135,6 +147,10 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
     add(new PushDownOperation(type, digest, action));
   }
 
+  public void add(PushDownType type, Object digest, AbstractAction<?> action, RelNode relNode) {
+    add(new PushDownOperation(type, digest, action, relNode));
+  }
+
   public boolean containsDigest(Object digest) {
     return this.stream().anyMatch(action -> action.digest().equals(digest));
   }
@@ -160,5 +176,73 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
           operation -> ((OSRequestBuilderAction) operation.action()).apply(newRequestBuilder));
     }
     return newRequestBuilder;
+  }
+
+  /**
+   * Reconstruct the complete pushed-down RelNode tree from stored operations.
+   * Builds: Scan → Filter → Project → Aggregate → Limit
+   *
+   * @param logicalIndexScan The base CalciteLogicalIndexScan to start from
+   * @return The complete RelNode tree with all push-downs applied
+   */
+  public RelNode reconstructPushedDownRelNodeTree(RelNode logicalIndexScan) {
+      RelNode current = logicalIndexScan;
+      List<PushDownOperation> pushDownOperations = new ArrayList<>(this);
+
+      for (int i = 0; i < pushDownOperations.size(); i++) {
+          RelNode storedRelNode = pushDownOperations.get(i).relNode();
+          if (storedRelNode != null) {
+              RelNode before = current;
+              current = replaceInput(storedRelNode, current);
+              LOGGER.info("{} being added as input to {}", before, current);
+          }
+      }
+      return current;
+  }
+
+  /**
+   * Replace the input of a RelNode with a new input.
+   * Creates a new RelNode instance with the updated input while preserving the exact structure.
+   * Uses direct copy() methods to avoid Calcite optimizations that change the condition structure.
+   */
+  private RelNode replaceInput(RelNode relNode, RelNode newInput) {
+
+    if (relNode instanceof LogicalFilter filter) {
+      // Use direct copy() to preserve exact filter condition (avoid SEARCH optimization)
+      return filter.copy(filter.getTraitSet(), newInput, filter.getCondition());
+    }
+
+    if (relNode instanceof LogicalAggregate agg) {
+      // Use direct copy() to preserve exact aggregate structure
+      return agg.copy(
+          agg.getTraitSet(),
+          newInput,
+          agg.getGroupSet(),
+          agg.getGroupSets(),
+          agg.getAggCallList());
+    }
+
+    if (relNode instanceof LogicalProject proj) {
+      // Use direct copy() to preserve exact project expressions
+      return proj.copy(
+          proj.getTraitSet(),
+          newInput,
+          proj.getProjects(),
+          proj.getRowType());
+    }
+
+    if (relNode instanceof LogicalSort sort) {
+      // Use direct copy() to preserve exact sort collation
+      return sort.copy(
+          sort.getTraitSet(),
+          newInput,
+          sort.getCollation(),
+          sort.offset,
+          sort.fetch);
+    }
+
+    // If we don't know how to handle this RelNode type, throw an exception
+    throw new UnsupportedOperationException(
+        "Unsupported RelNode type for reconstruction: " + relNode.getClass().getName());
   }
 }
