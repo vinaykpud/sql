@@ -482,6 +482,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
       //Mapping of Function names in Calcite to Substrait
         List<FunctionMappings.Sig> customSigs = List.of(
+                new FunctionMappings.Sig(SqlStdOperatorTable.MIN, "min"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "date_part"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "date_format"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "date_format"),

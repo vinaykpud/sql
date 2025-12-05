@@ -21,3 +21,11 @@ scalar_functions:
             value: precision_timestamp<P>
         return: i64
 
+aggregate_functions:
+  - name: min
+    description: Find the minimum value of a string
+    impls:
+      - args:
+          - name: x
+            value: string
+        return: i64
