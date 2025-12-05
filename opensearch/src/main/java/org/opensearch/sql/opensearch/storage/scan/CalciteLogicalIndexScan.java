@@ -18,6 +18,7 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
+import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
 import org.apache.calcite.rel.RelFieldCollation;
@@ -134,6 +135,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
     } else {
       planner.addRule(OpenSearchIndexRules.RELEVANCE_FUNCTION_PUSHDOWN);
     }
+
+    // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
+    // This is needed for Substrait compatibility which doesn't support SEARCH operations
+    planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
   }
 
   public AbstractRelNode pushDownFilter(Filter filter) {
@@ -149,6 +154,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               filter.getCondition(), schema, fieldTypes, rowType, getCluster());
       // TODO: handle the case where condition contains a score function
       CalciteLogicalIndexScan newScan = this.copy();
+
+      // Log the filter condition being stored to check if SEARCH optimization already happened
+      LOG.info("Filter condition being stored: {}", filter.getCondition());
+
       newScan.pushDownContext.add(
           queryExpression.getScriptCount() > 0 ? PushDownType.SCRIPT : PushDownType.FILTER,
           new FilterDigest(
@@ -158,7 +167,8 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
                       queryExpression.getAnalyzedNodes(), getCluster().getRexBuilder())
                   : filter.getCondition()),
           (OSRequestBuilderAction)
-              requestBuilder -> requestBuilder.pushDownFilterForCalcite(queryExpression.builder()));
+              requestBuilder -> requestBuilder.pushDownFilter(queryExpression.builder()),
+              filter);
 
       // If the query expression is partial, we need to replace the input of the filter with the
       // partial pushed scan and the filter condition with non-pushed-down conditions.
@@ -264,7 +274,17 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               requestBuilder ->
                   requestBuilder.pushDownProjectStream(newSchema.getFieldNames().stream());
     }
-    newScan.pushDownContext.add(PushDownType.PROJECT, newSchema.getFieldNames(), action);
+    // Create a Project RelNode for Substrait conversion
+    org.apache.calcite.rex.RexBuilder rexBuilder = getCluster().getRexBuilder();
+    List<org.apache.calcite.rex.RexNode> projects = new java.util.ArrayList<>();
+    for (int columnIndex : selectedColumns) {
+      projects.add(rexBuilder.makeInputRef(this, columnIndex));
+    }
+    org.apache.calcite.rel.core.Project projectRelNode =
+        org.apache.calcite.rel.logical.LogicalProject.create(
+            this, java.util.Collections.emptyList(), projects, newSchema);
+
+    newScan.pushDownContext.add(PushDownType.PROJECT, newSchema.getFieldNames(), action, projectRelNode);
     return newScan;
   }
 
@@ -382,7 +402,20 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               builderAndParser,
               extendedTypeMapping,
               outputFields.subList(0, aggregate.getGroupSet().cardinality()));
-      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action);
+
+      // Store the input Project node BEFORE the Aggregate
+      // This Project comes between the Aggregate and the Filter in the pattern: Agg → Project → Filter
+      if (project != null) {
+          LOG.info("Project to add: {}", project);
+          // Create a no-op OSRequestBuilderAction (not AggregationBuilderAction!)
+          // This ensures the Project is added to operationsForRequestBuilder, not operationsForAgg
+          // no-op since we don't need to modify the OpenSearch query, we only need RelNode for Substrait conversion
+          // We're using OSRequestBuilderAction for its routing behavior, It ensures the operation goes to
+          // operationsForRequestBuilder (not operationsForAgg)
+          OSRequestBuilderAction projectAction = requestBuilder -> {};
+          newScan.pushDownContext.add(PushDownType.PROJECT, project.getRowType().getFieldNames(), projectAction, project);
+      }
+      newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);
       return newScan;
     } catch (Exception e) {
         LOG.info("Cannot pushdown the aggregate {}", aggregate, e);
@@ -420,7 +453,8 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
         newScan.pushDownContext.add(
             PushDownType.LIMIT,
             new LimitDigest(limit, offset),
-            (OSRequestBuilderAction) requestBuilder -> requestBuilder.pushDownLimit(limit, offset));
+            (OSRequestBuilderAction) requestBuilder -> requestBuilder.pushDownLimit(limit, offset),
+            sort);  // Store the Sort RelNode
         return newScan;
       }
     } catch (Exception e) {
