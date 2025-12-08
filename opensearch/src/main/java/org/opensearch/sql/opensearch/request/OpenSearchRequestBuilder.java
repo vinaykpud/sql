@@ -75,6 +75,9 @@ public class OpenSearchRequestBuilder {
 
   @ToString.Exclude private final Settings settings;
 
+  /** Whether the index is optimized. */
+  private boolean indexOptimized = false;
+
   /** RelNode tree for pushed-down operations (optional).
    * -- SETTER --
    *  Set the RelNode tree for pushed-down operations.
@@ -121,13 +124,14 @@ public class OpenSearchRequestBuilder {
       TimeValue cursorKeepAlive,
       OpenSearchClient client,
       boolean isMappingEmpty) {
+    indexOptimized = client.isIndexOptimized(indexName.toString());
     /* Don't use PIT search:
      * 1. If the size of source is 0. It means this is an aggregation request and no need to use pit.
      * 2. If mapping is empty. It means no data in the index. PIT search relies on `_id` fields to do sort, thus it will fail if using PIT search in this case.
      */
     if (sourceBuilder.size() == 0 || isMappingEmpty) {
       return new OpenSearchQueryRequest(
-          indexName, sourceBuilder, exprValueFactory, List.of(), pushedDownRelNodeTree);
+          indexName, sourceBuilder, exprValueFactory, List.of(), pushedDownRelNodeTree, indexOptimized);
     }
     return buildRequestWithPit(indexName, cursorKeepAlive, client);
   }
@@ -144,13 +148,13 @@ public class OpenSearchRequestBuilder {
         // Search with PIT request
         String pitId = createPit(indexName, cursorKeepAlive, client);
         return new OpenSearchQueryRequest(
-            indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
+            indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree, indexOptimized);
       } else {
         sourceBuilder.from(startFrom);
         sourceBuilder.size(size);
         // Search with non-Pit request
         return new OpenSearchQueryRequest(
-            indexName, sourceBuilder, exprValueFactory, includes, pushedDownRelNodeTree);
+            indexName, sourceBuilder, exprValueFactory, includes, pushedDownRelNodeTree, indexOptimized);
       }
     } else {
       if (startFrom != 0) {
@@ -160,7 +164,7 @@ public class OpenSearchRequestBuilder {
       // Search with PIT request
       String pitId = createPit(indexName, cursorKeepAlive, client);
       return new OpenSearchQueryRequest(
-          indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
+          indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree, indexOptimized);
     }
   }
 
