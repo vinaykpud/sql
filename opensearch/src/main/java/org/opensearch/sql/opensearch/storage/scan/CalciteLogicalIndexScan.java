@@ -10,6 +10,8 @@ import static org.opensearch.sql.opensearch.storage.serde.ScriptParameterHelper.
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +25,7 @@ import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rel.AbstractRelNode;
+import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelCollations;
@@ -76,6 +79,8 @@ import org.opensearch.sql.opensearch.storage.scan.context.PushDownContext;
 import org.opensearch.sql.opensearch.storage.scan.context.PushDownType;
 import org.opensearch.sql.opensearch.storage.scan.context.RareTopDigest;
 import org.opensearch.sql.opensearch.storage.scan.context.SortExprDigest;
+
+import static java.util.Collections.emptyList;
 
 /** The logical relational operator representing a scan of an OpenSearchIndex type. */
 @Getter
@@ -288,15 +293,12 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
                   requestBuilder.pushDownProjectStream(newSchema.getFieldNames().stream());
     }
     // Create a Project RelNode for Substrait conversion
-    org.apache.calcite.rex.RexBuilder rexBuilder = getCluster().getRexBuilder();
-    List<org.apache.calcite.rex.RexNode> projects = new java.util.ArrayList<>();
+    RexBuilder rexBuilder = getCluster().getRexBuilder();
+    List<RexNode> projects = new ArrayList<>();
     for (int columnIndex : selectedColumns) {
       projects.add(rexBuilder.makeInputRef(this, columnIndex));
     }
-    org.apache.calcite.rel.core.Project projectRelNode =
-        org.apache.calcite.rel.logical.LogicalProject.create(
-            this, java.util.Collections.emptyList(), projects, newSchema);
-
+    Project projectRelNode = LogicalProject.create(this, emptyList(), projects, newSchema);
     newScan.pushDownContext.add(PushDownType.PROJECT, newSchema.getFieldNames(), action, projectRelNode);
     return newScan;
   }
@@ -343,7 +345,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       AbstractAction<?> action =
           (OSRequestBuilderAction) requestAction -> requestAction.resetRequestTotal();
       Object digest = sort.getCollation().getFieldCollations();
-      newScan.pushDownContext.add(PushDownType.SORT_AGG_METRICS, digest, action);
+      newScan.pushDownContext.add(PushDownType.SORT_AGG_METRICS, digest, action, sort);
       return newScan;
     } catch (Exception e) {
       if (LOG.isDebugEnabled()) {
