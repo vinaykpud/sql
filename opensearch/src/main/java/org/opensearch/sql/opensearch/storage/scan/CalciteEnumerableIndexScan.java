@@ -121,6 +121,7 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
     RelNode fullRelNodeTree = null;
     try {
       if (pushDownContext != null && !pushDownContext.isEmpty()) {
+        // FIXME : Make this optional based on the index setting
         fullRelNodeTree = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
         CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOG.info("Full RelNode tree:\n{}", RelOptUtil.toString(fullRelNodeTree));
