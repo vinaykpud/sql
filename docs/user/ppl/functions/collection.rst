@@ -186,6 +186,60 @@ Example::
     | 120    |
     +--------+
 
+SPLIT
+-----
+
+Description
+>>>>>>>>>>>
+
+Usage: split(str, delimiter) splits the string values on the delimiter and returns the string values as a multivalue field (array). Use an empty string ("") to split the original string into one value per character. If the delimiter is not found, returns an array containing the original string. If the input string is empty, returns an empty array.
+
+Argument type: str: STRING, delimiter: STRING
+
+Return type: ARRAY of STRING
+
+Example::
+
+    os> source=people | eval test = 'buttercup;rarity;tenderhoof;dash', result = split(test, ';') | fields result | head 1
+    fetched rows / total rows = 1/1
+    +------------------------------------+
+    | result                             |
+    |------------------------------------|
+    | [buttercup,rarity,tenderhoof,dash] |
+    +------------------------------------+
+
+    os> source=people | eval test = '1a2b3c4def567890', result = split(test, 'def') | fields result | head 1
+    fetched rows / total rows = 1/1
+    +------------------+
+    | result           |
+    |------------------|
+    | [1a2b3c4,567890] |
+    +------------------+
+
+    os> source=people | eval test = 'abcd', result = split(test, '') | fields result | head 1
+    fetched rows / total rows = 1/1
+    +-----------+
+    | result    |
+    |-----------|
+    | [a,b,c,d] |
+    +-----------+
+
+    os> source=people | eval test = 'name::value', result = split(test, '::') | fields result | head 1
+    fetched rows / total rows = 1/1
+    +--------------+
+    | result       |
+    |--------------|
+    | [name,value] |
+    +--------------+
+
+    os> source=people | eval test = 'hello', result = split(test, ',') | fields result | head 1
+    fetched rows / total rows = 1/1
+    +---------+
+    | result  |
+    |---------|
+    | [hello] |
+    +---------+
+
 MVJOIN
 ------
 
@@ -301,3 +355,96 @@ Example::
     |--------------|
     | [1,text,2.5] |
     +--------------+
+
+MVDEDUP
+-------
+
+Description
+>>>>>>>>>>>
+
+Usage: mvdedup(array) removes duplicate values from a multivalue array while preserving the order of first occurrence. NULL elements are filtered out. Returns an array with duplicates removed, or null if the input is null.
+
+Argument type: array: ARRAY
+
+Return type: ARRAY
+
+Example::
+
+    os> source=people | eval array = array(1, 2, 2, 3, 1, 4), result = mvdedup(array) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +-----------+
+    | result    |
+    |-----------|
+    | [1,2,3,4] |
+    +-----------+
+
+    os> source=people | eval array = array('z', 'a', 'z', 'b', 'a', 'c'), result = mvdedup(array) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +-----------+
+    | result    |
+    |-----------|
+    | [z,a,b,c] |
+    +-----------+
+
+    os> source=people | eval array = array(), result = mvdedup(array) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +--------+
+    | result |
+    |--------|
+    | []     |
+    +--------+
+
+MVINDEX
+-------
+
+Description
+>>>>>>>>>>>
+
+Usage: mvindex(array, start, [end]) returns a subset of the multivalue array using the start and optional end index values. Indexes are 0-based (first element is at index 0). Supports negative indexing where -1 refers to the last element. When only start is provided, returns a single element. When both start and end are provided, returns an array of elements from start to end (inclusive).
+
+Argument type: array: ARRAY, start: INTEGER, end: INTEGER (optional)
+
+Return type: ANY (single element) or ARRAY (range)
+
+Example::
+
+    os> source=people | eval array = array('a', 'b', 'c', 'd', 'e'), result = mvindex(array, 1) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +--------+
+    | result |
+    |--------|
+    | b      |
+    +--------+
+
+    os> source=people | eval array = array('a', 'b', 'c', 'd', 'e'), result = mvindex(array, -1) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +--------+
+    | result |
+    |--------|
+    | e      |
+    +--------+
+
+    os> source=people | eval array = array(1, 2, 3, 4, 5), result = mvindex(array, 1, 3) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +---------+
+    | result  |
+    |---------|
+    | [2,3,4] |
+    +---------+
+
+    os> source=people | eval array = array(1, 2, 3, 4, 5), result = mvindex(array, -3, -1) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +---------+
+    | result  |
+    |---------|
+    | [3,4,5] |
+    +---------+
+
+    os> source=people | eval array = array('alex', 'celestino', 'claudia', 'david'), result = mvindex(array, 0, 2) | fields result | head 1
+    fetched rows / total rows = 1/1
+    +--------------------------+
+    | result                   |
+    |--------------------------|
+    | [alex,celestino,claudia] |
+    +--------------------------+
+

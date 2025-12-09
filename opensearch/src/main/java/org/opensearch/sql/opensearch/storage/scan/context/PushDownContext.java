@@ -24,27 +24,34 @@ import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalSort;
 import org.jetbrains.annotations.NotNull;
 import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder;
+import org.opensearch.sql.opensearch.request.OpenSearchRequestBuilder.PushDownUnSupportedException;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 
 /** Push down context is used to store all the push down operations that are applied to the query */
 @Getter
 public class PushDownContext extends AbstractCollection<PushDownOperation> {
   private static final Logger LOGGER = LogManager.getLogger(PushDownContext.class);
-  
+
   private final OpenSearchIndex osIndex;
   private final OpenSearchRequestBuilder requestBuilder;
+  private ArrayDeque<PushDownOperation> queue = new ArrayDeque<>();
   private ArrayDeque<PushDownOperation> operationsForRequestBuilder;
 
   private boolean isAggregatePushed = false;
   private AggPushDownAction aggPushDownAction;
   private ArrayDeque<PushDownOperation> operationsForAgg;
 
+  // Records the start pos of the query, which is updated by new added limit operations.
+  private int startFrom = 0;
+
   private boolean isLimitPushed = false;
   private boolean isProjectPushed = false;
   private boolean isMeasureOrderPushed = false;
   private boolean isSortPushed = false;
+  private boolean isSortExprPushed = false;
   private boolean isTopKPushed = false;
   private boolean isRareTopPushed = false;
+  private boolean isScriptPushed = false;
 
   public PushDownContext(OpenSearchIndex osIndex) {
     this.osIndex = osIndex;
@@ -66,7 +73,7 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
   public PushDownContext cloneWithoutSort() {
     PushDownContext newContext = new PushDownContext(osIndex);
     for (PushDownOperation action : this) {
-      if (action.type() != PushDownType.SORT) {
+      if (action.type() != PushDownType.SORT && action.type() != PushDownType.SORT_EXPR) {
         newContext.add(action);
       }
     }
@@ -76,44 +83,47 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
   @NotNull
   @Override
   public Iterator<PushDownOperation> iterator() {
-    if (operationsForRequestBuilder == null) {
-      return Collections.emptyIterator();
-    } else if (operationsForAgg == null) {
-      return operationsForRequestBuilder.iterator();
-    } else {
-      return Iterators.concat(operationsForRequestBuilder.iterator(), operationsForAgg.iterator());
-    }
+    return queue.iterator();
   }
 
   @Override
   public int size() {
-    return (operationsForRequestBuilder == null ? 0 : operationsForRequestBuilder.size())
-        + (operationsForAgg == null ? 0 : operationsForAgg.size());
+    return queue.size();
   }
 
-  ArrayDeque<PushDownOperation> getOperationsForRequestBuilder() {
+  void addOperationForRequestBuilder(PushDownOperation operation) {
     if (operationsForRequestBuilder == null) {
       this.operationsForRequestBuilder = new ArrayDeque<>();
     }
-    return operationsForRequestBuilder;
+    operationsForRequestBuilder.add(operation);
+    queue.add(operation);
   }
 
-  ArrayDeque<PushDownOperation> getOperationsForAgg() {
+  void addOperationForAgg(PushDownOperation operation) {
     if (operationsForAgg == null) {
       this.operationsForAgg = new ArrayDeque<>();
     }
-    return operationsForAgg;
+    operationsForAgg.add(operation);
+    queue.add(operation);
   }
 
   @Override
   public boolean add(PushDownOperation operation) {
+    operation.action().pushOperation(this, operation);
     if (operation.type() == PushDownType.AGGREGATION) {
       isAggregatePushed = true;
       this.aggPushDownAction = (AggPushDownAction) operation.action();
     }
     if (operation.type() == PushDownType.LIMIT) {
+      startFrom += ((LimitDigest) operation.digest()).offset();
+      if (startFrom >= osIndex.getMaxResultWindow()) {
+        throw new PushDownUnSupportedException(
+            String.format(
+                "[INTERNAL] Requested offset %d should be less than the max result window %d",
+                startFrom, osIndex.getMaxResultWindow()));
+      }
       isLimitPushed = true;
-      if (isSortPushed || isMeasureOrderPushed) {
+      if (isSortPushed || isMeasureOrderPushed || isSortExprPushed) {
         isTopKPushed = true;
       }
     }
@@ -123,26 +133,46 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
     if (operation.type() == PushDownType.SORT) {
       isSortPushed = true;
     }
+    if (operation.type() == PushDownType.SORT_EXPR) {
+      isSortExprPushed = true;
+    }
     if (operation.type() == PushDownType.SORT_AGG_METRICS) {
       isMeasureOrderPushed = true;
     }
     if (operation.type() == PushDownType.RARE_TOP) {
       isRareTopPushed = true;
     }
-    operation.action().transform(this, operation);
+    if (operation.type() == PushDownType.SCRIPT) {
+      isScriptPushed = true;
+    }
     return true;
   }
 
   public void add(PushDownType type, Object digest, AbstractAction<?> action) {
     add(new PushDownOperation(type, digest, action));
   }
-  
+
+
   public void add(PushDownType type, Object digest, AbstractAction<?> action, RelNode relNode) {
     add(new PushDownOperation(type, digest, action, relNode));
   }
 
   public boolean containsDigest(Object digest) {
     return this.stream().anyMatch(action -> action.digest().equals(digest));
+  }
+
+  /**
+   * Get the digest of the first operation of a specific type.
+   *
+   * @param type The PushDownType to get the digest for
+   * @return The digest object, or null if no operation of the specified type exists
+   */
+  public Object getDigestByType(PushDownType type) {
+    return this.stream()
+        .filter(operation -> operation.type() == type)
+        .map(PushDownOperation::digest)
+        .findFirst()
+        .orElse(null);
   }
 
   public OpenSearchRequestBuilder createRequestBuilder() {
@@ -153,11 +183,11 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
     }
     return newRequestBuilder;
   }
-  
+
   /**
    * Reconstruct the complete pushed-down RelNode tree from stored operations.
    * Builds: Scan → Filter → Project → Aggregate → Limit
-   * 
+   *
    * @param logicalIndexScan The base CalciteLogicalIndexScan to start from
    * @return The complete RelNode tree with all push-downs applied
    */
@@ -182,19 +212,19 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
       LOGGER.info("Final reconstructed tree\n: {}", current);
       return current;
   }
-  
+
   /**
    * Replace the input of a RelNode with a new input.
    * Creates a new RelNode instance with the updated input while preserving the exact structure.
    * Uses direct copy() methods to avoid Calcite optimizations that change the condition structure.
    */
   private RelNode replaceInput(RelNode relNode, RelNode newInput) {
-    
+
     if (relNode instanceof LogicalFilter filter) {
       // Use direct copy() to preserve exact filter condition (avoid SEARCH optimization)
       return filter.copy(filter.getTraitSet(), newInput, filter.getCondition());
     }
-    
+
     if (relNode instanceof LogicalAggregate agg) {
       // Use direct copy() to preserve exact aggregate structure
       return agg.copy(
@@ -204,7 +234,7 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
           agg.getGroupSets(),
           agg.getAggCallList());
     }
-    
+
     if (relNode instanceof LogicalProject proj) {
       // Use direct copy() to preserve exact project expressions
       return proj.copy(
@@ -213,7 +243,7 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
           proj.getProjects(),
           proj.getRowType());
     }
-    
+
     if (relNode instanceof LogicalSort sort) {
       // Use direct copy() to preserve exact sort collation
       return sort.copy(

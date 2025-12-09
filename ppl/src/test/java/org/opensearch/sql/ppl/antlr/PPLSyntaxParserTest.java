@@ -712,11 +712,11 @@ public class PPLSyntaxParserTest {
         new PPLSyntaxParser()
             .parse(
                 """
-                    // test is a new line comment \
-                    search source=t a=1 b=2 // test is a line comment at the end of ppl command \
-                    | fields a,b // this is line comment inner ppl command\
-                    ////this is a new line comment
-                    """));
+                // test is a new line comment \
+                search source=t a=1 b=2 // test is a line comment at the end of ppl command \
+                | fields a,b // this is line comment inner ppl command\
+                ////this is a new line comment
+                """));
   }
 
   @Test
@@ -727,20 +727,138 @@ public class PPLSyntaxParserTest {
         new PPLSyntaxParser()
             .parse(
                 """
-                    /*
+                /*
+                This is a\
+                    multiple\
+                line\
+                block\
+                    comment */\
+                search /* block comment */ source=t /* block comment */ a=1 b=2
+                |/*
                     This is a\
                         multiple\
                     line\
                     block\
-                        comment */\
-                    search /* block comment */ source=t /* block comment */ a=1 b=2
-                    |/*
-                        This is a\
-                            multiple\
-                        line\
-                        block\
-                            comment */ fields a,b /* block comment */ \
-                    """));
+                        comment */ fields a,b /* block comment */ \
+                """));
+  }
+
+  @Test
+  public void testDynamicSourceWithIntermixedSourcesAndFilters() {
+    // Test intermixed sources and filters in various orders
+    String query = "source=[myindex, region=\"us-east-1\", logs, count=100, api.gateway]";
+    OpenSearchPPLLexer lexer = new OpenSearchPPLLexer(new CaseInsensitiveCharStream(query));
+    OpenSearchPPLParser parser = new OpenSearchPPLParser(new CommonTokenStream(lexer));
+
+    OpenSearchPPLParser.RootContext root = parser.root();
+    OpenSearchPPLParser.SearchFromContext searchFrom =
+        (OpenSearchPPLParser.SearchFromContext)
+            root.pplStatement().queryStatement().pplCommands().searchCommand();
+    OpenSearchPPLParser.DynamicSourceClauseContext dynamicSource =
+        searchFrom.fromClause().dynamicSourceClause();
+
+    // Verify we have 3 source references
+    assertEquals("Should have 3 source references", 3, dynamicSource.sourceReference().size());
+    assertEquals("First source reference", "myindex", dynamicSource.sourceReference(0).getText());
+    assertEquals("Second source reference", "logs", dynamicSource.sourceReference(1).getText());
+    assertEquals(
+        "Third source reference", "api.gateway", dynamicSource.sourceReference(2).getText());
+
+    // Verify we have 2 filter args
+    assertEquals("Should have 2 filter args", 2, dynamicSource.sourceFilterArg().size());
+    assertEquals(
+        "First filter arg", "region=\"us-east-1\"", dynamicSource.sourceFilterArg(0).getText());
+    assertEquals("Second filter arg", "count=100", dynamicSource.sourceFilterArg(1).getText());
+  }
+
+  @Test
+  public void testDynamicSourceStartingWithFilter() {
+    // Test starting with a filter argument instead of source reference
+    String query = "source=[region=\"us-west-1\", myindex, env=\"prod\", logs]";
+    OpenSearchPPLLexer lexer = new OpenSearchPPLLexer(new CaseInsensitiveCharStream(query));
+    OpenSearchPPLParser parser = new OpenSearchPPLParser(new CommonTokenStream(lexer));
+
+    OpenSearchPPLParser.RootContext root = parser.root();
+    OpenSearchPPLParser.SearchFromContext searchFrom =
+        (OpenSearchPPLParser.SearchFromContext)
+            root.pplStatement().queryStatement().pplCommands().searchCommand();
+    OpenSearchPPLParser.DynamicSourceClauseContext dynamicSource =
+        searchFrom.fromClause().dynamicSourceClause();
+
+    // Verify source references
+    assertEquals("Should have 2 source references", 2, dynamicSource.sourceReference().size());
+    assertEquals("First source reference", "myindex", dynamicSource.sourceReference(0).getText());
+    assertEquals("Second source reference", "logs", dynamicSource.sourceReference(1).getText());
+
+    // Verify filter args
+    assertEquals("Should have 2 filter args", 2, dynamicSource.sourceFilterArg().size());
+    assertEquals(
+        "First filter arg", "region=\"us-west-1\"", dynamicSource.sourceFilterArg(0).getText());
+    assertEquals("Second filter arg", "env=\"prod\"", dynamicSource.sourceFilterArg(1).getText());
+  }
+
+  @Test
+  public void testDynamicSourceAlternatingPattern() {
+    // Test alternating pattern of sources and filters
+    String query =
+        "source=[ds:index1, type=\"logs\", ds:index2, count=50, ds:index3, region=\"us-east-1\"]";
+    OpenSearchPPLLexer lexer = new OpenSearchPPLLexer(new CaseInsensitiveCharStream(query));
+    OpenSearchPPLParser parser = new OpenSearchPPLParser(new CommonTokenStream(lexer));
+
+    OpenSearchPPLParser.RootContext root = parser.root();
+    OpenSearchPPLParser.SearchFromContext searchFrom =
+        (OpenSearchPPLParser.SearchFromContext)
+            root.pplStatement().queryStatement().pplCommands().searchCommand();
+    OpenSearchPPLParser.DynamicSourceClauseContext dynamicSource =
+        searchFrom.fromClause().dynamicSourceClause();
+
+    // Verify source references
+    assertEquals("Should have 3 source references", 3, dynamicSource.sourceReference().size());
+    assertEquals("First source reference", "ds:index1", dynamicSource.sourceReference(0).getText());
+    assertEquals(
+        "Second source reference", "ds:index2", dynamicSource.sourceReference(1).getText());
+    assertEquals("Third source reference", "ds:index3", dynamicSource.sourceReference(2).getText());
+
+    // Verify filter args
+    assertEquals("Should have 3 filter args", 3, dynamicSource.sourceFilterArg().size());
+    assertEquals("First filter arg", "type=\"logs\"", dynamicSource.sourceFilterArg(0).getText());
+    assertEquals("Second filter arg", "count=50", dynamicSource.sourceFilterArg(1).getText());
+    assertEquals(
+        "Third filter arg", "region=\"us-east-1\"", dynamicSource.sourceFilterArg(2).getText());
+  }
+
+  @Test
+  public void testDynamicSourceWithComplexIntermixedIN() {
+    // Test intermixed with IN clause filter
+    String query =
+        "source=[logs, fieldIndex IN (\"status\", \"error\"), api.gateway, region=\"us-east-1\"]";
+    OpenSearchPPLLexer lexer = new OpenSearchPPLLexer(new CaseInsensitiveCharStream(query));
+    OpenSearchPPLParser parser = new OpenSearchPPLParser(new CommonTokenStream(lexer));
+
+    OpenSearchPPLParser.RootContext root = parser.root();
+    assertNotNull("Query should parse successfully", root);
+
+    OpenSearchPPLParser.SearchFromContext searchFrom =
+        (OpenSearchPPLParser.SearchFromContext)
+            root.pplStatement().queryStatement().pplCommands().searchCommand();
+    OpenSearchPPLParser.DynamicSourceClauseContext dynamicSource =
+        searchFrom.fromClause().dynamicSourceClause();
+
+    assertNotNull("Dynamic source should exist", dynamicSource);
+
+    // Verify source references
+    assertEquals("Should have 2 source references", 2, dynamicSource.sourceReference().size());
+    assertEquals("First source reference", "logs", dynamicSource.sourceReference(0).getText());
+    assertEquals(
+        "Second source reference", "api.gateway", dynamicSource.sourceReference(1).getText());
+
+    // Verify filter args - should have IN clause and region filter
+    assertEquals("Should have 2 filter args", 2, dynamicSource.sourceFilterArg().size());
+    assertTrue(
+        "First filter should contain IN clause",
+        dynamicSource.sourceFilterArg(0).getText().contains("IN"));
+    assertEquals(
+        "Second filter arg", "region=\"us-east-1\"", dynamicSource.sourceFilterArg(1).getText());
   }
 
   @Test

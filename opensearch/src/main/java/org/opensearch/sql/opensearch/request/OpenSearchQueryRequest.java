@@ -40,7 +40,6 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
-import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlLibraryOperators;
@@ -52,6 +51,7 @@ import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.util.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.TestOnly;
 import org.opensearch.action.search.SearchRequest;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.action.search.SearchScrollRequest;
@@ -66,6 +66,8 @@ import org.opensearch.core.xcontent.XContentParser;
 import org.opensearch.search.SearchHit;
 import org.opensearch.search.SearchHits;
 import org.opensearch.search.SearchModule;
+import org.opensearch.search.aggregations.bucket.composite.CompositeAggregationBuilder;
+import org.opensearch.search.aggregations.bucket.composite.InternalComposite;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
@@ -76,12 +78,10 @@ import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.PPLBuiltinOperators;
-import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
-import org.opensearch.sql.opensearch.storage.scan.CalciteLogicalIndexScan;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -111,6 +111,7 @@ import static org.opensearch.search.sort.SortOrder.ASC;
 @Getter
 @ToString
 public class OpenSearchQueryRequest implements OpenSearchRequest {
+  private static final Logger LOG = LogManager.getLogger();
 
   private static final SimpleExtension.ExtensionCollection EXTENSIONS;
 
@@ -138,81 +139,81 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   /** List of includes expected in the response. */
   @EqualsAndHashCode.Exclude @ToString.Exclude private final List<String> includes;
 
-  @EqualsAndHashCode.Exclude private boolean needClean = true;
+  @EqualsAndHashCode.Exclude @ToString.Exclude private boolean needClean = true;
 
   /** Indicate the search already done. */
-  private boolean searchDone = false;
+  @EqualsAndHashCode.Exclude @ToString.Exclude private boolean searchDone = false;
 
   private String pitId;
 
-  private TimeValue cursorKeepAlive;
+  private final TimeValue cursorKeepAlive;
 
   private Object[] searchAfter;
 
   private SearchResponse searchResponse = null;
 
+  @ToString.Exclude private Map<String, Object> afterKey;
+
   /** RelNode tree for pushed-down operations (optional). */
   @EqualsAndHashCode.Exclude @ToString.Exclude
   private final org.apache.calcite.rel.RelNode pushedDownRelNodeTree;
 
-    private static final Logger LOGGER =
+  private static final Logger LOGGER =
             LogManager.getLogger(OpenSearchQueryRequest.class);
 
-  /** Constructor of OpenSearchQueryRequest. */
-  public OpenSearchQueryRequest(
+    @TestOnly
+  static OpenSearchQueryRequest of(
       String indexName, int size, OpenSearchExprValueFactory factory, List<String> includes) {
-    this(new IndexName(indexName), size, factory, includes);
-  }
-
-  /** Constructor of OpenSearchQueryRequest. */
-  public OpenSearchQueryRequest(
-      IndexName indexName, int size, OpenSearchExprValueFactory factory, List<String> includes) {
-    this.indexName = indexName;
-    this.sourceBuilder = new SearchSourceBuilder();
+    SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
     sourceBuilder.from(0);
     sourceBuilder.size(size);
     sourceBuilder.timeout(DEFAULT_QUERY_TIMEOUT);
-    this.exprValueFactory = factory;
-    this.includes = includes;
-    this.pushedDownRelNodeTree = null;
+    return of(indexName, sourceBuilder, factory, includes);
   }
 
-  /** Constructor of OpenSearchQueryRequest. */
-  public OpenSearchQueryRequest(
+  @TestOnly
+  static OpenSearchQueryRequest of(
+      String indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes) {
+    return OpenSearchQueryRequest.of(new IndexName(indexName), sourceBuilder, factory, includes);
+  }
+
+  /** Build an OpenSearchQueryRequest without PIT support. */
+  public static OpenSearchQueryRequest of(
       IndexName indexName,
       SearchSourceBuilder sourceBuilder,
       OpenSearchExprValueFactory factory,
       List<String> includes) {
-    this(indexName, sourceBuilder, factory, includes, (RelNode) null);
+    return new OpenSearchQueryRequest(
+            indexName, sourceBuilder, factory, includes, null, null ,null);
   }
 
-  /** Constructor of OpenSearchQueryRequest with RelNode tree support. */
-  public OpenSearchQueryRequest(
-      IndexName indexName,
-      SearchSourceBuilder sourceBuilder,
-      OpenSearchExprValueFactory factory,
-      List<String> includes,
-      RelNode pushedDownRelNodeTree) {
-    this.indexName = indexName;
-    this.sourceBuilder = sourceBuilder;
-    this.exprValueFactory = factory;
-    this.includes = includes;
-    this.pushedDownRelNodeTree = pushedDownRelNodeTree;
-  }
-
-  /** Constructor of OpenSearchQueryRequest with PIT support. */
-  public OpenSearchQueryRequest(
+  /** Build an OpenSearchQueryRequest with PIT support. */
+  public static OpenSearchQueryRequest pitOf(
       IndexName indexName,
       SearchSourceBuilder sourceBuilder,
       OpenSearchExprValueFactory factory,
       List<String> includes,
       TimeValue cursorKeepAlive,
       String pitId) {
-    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null);
+    return new OpenSearchQueryRequest(
+        indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null);
   }
 
-  /** Constructor of OpenSearchQueryRequest with PIT and RelNode tree support. */
-  public OpenSearchQueryRequest(
+  public static <E> OpenSearchRequest of(
+          IndexName indexName,
+          SearchSourceBuilder sourceBuilder,
+          OpenSearchExprValueFactory factory,
+          List<String> includes,
+          RelNode pushedDownRelNodeTree) {
+      return new OpenSearchQueryRequest(
+              indexName, sourceBuilder, factory, includes, null, null ,pushedDownRelNodeTree);
+  }
+
+  /** Do not new it directly, use of() and pitOf() instead. */
+  OpenSearchQueryRequest(
       IndexName indexName,
       SearchSourceBuilder sourceBuilder,
       OpenSearchExprValueFactory factory,
@@ -229,7 +230,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     this.pushedDownRelNodeTree = pushedDownRelNodeTree;
   }
 
-  /** true if the request is a count aggregation request. */
+    /** true if the request is a count aggregation request. */
   public boolean isCountAggRequest() {
     return !searchDone
         && sourceBuilder.size() == 0
@@ -272,7 +273,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     exprValueFactory =
         new OpenSearchExprValueFactory(
             index.getFieldOpenSearchTypes(), index.isFieldTypeTolerance());
-    
+
     // RelNode tree is not serialized/deserialized for now
     // It is only used during the initial query execution
     this.pushedDownRelNodeTree = null;
@@ -283,27 +284,56 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       Function<SearchRequest, SearchResponse> searchAction,
       Function<SearchScrollRequest, SearchResponse> scrollAction) {
     if (this.pitId == null) {
-      // When SearchRequest doesn't contain PitId, fetch single page request
-      if (searchDone) {
-        return new OpenSearchResponse(
-            SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
-      } else {
-        // get the value before set searchDone = true
-        boolean isCountAggRequest = isCountAggRequest();
-        searchDone = true;
-        // Convert pushed-down RelNode tree to Substrait bytes
-        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
-        return new OpenSearchResponse(
-            searchAction.apply(
-                new SearchRequest().indices(indexName.getIndexNames()).source(sourceBuilder)),
-            exprValueFactory,
-            includes,
-            isCountAggRequest);
-      }
+      return search(searchAction);
     } else {
       // Search with PIT instead of scroll API
       return searchWithPIT(searchAction);
     }
+  }
+
+  private OpenSearchResponse search(Function<SearchRequest, SearchResponse> searchAction) {
+    OpenSearchResponse openSearchResponse;
+    if (searchDone) {
+      openSearchResponse =
+          new OpenSearchResponse(
+              SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
+    } else {
+        // Set afterKey to request, null for first round (afterKey is null in the beginning).
+      if (this.sourceBuilder.aggregations() != null) {
+        this.sourceBuilder.aggregations().getAggregatorFactories().stream()
+            .filter(a -> a instanceof CompositeAggregationBuilder)
+            .forEach(c -> ((CompositeAggregationBuilder) c).aggregateAfter(afterKey));
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(sourceBuilder);
+        }
+      }
+
+      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
+
+      SearchRequest searchRequest =
+          new SearchRequest().indices(indexName.getIndexNames()).source(this.sourceBuilder);
+      this.searchResponse = searchAction.apply(searchRequest);
+
+      openSearchResponse =
+          new OpenSearchResponse(
+              this.searchResponse, exprValueFactory, includes, isCountAggRequest());
+
+      // Update afterKey from response
+      if (openSearchResponse.isAggregationResponse()) {
+        openSearchResponse.getAggregations().asList().stream()
+            .filter(a -> a instanceof InternalComposite)
+            .forEach(c -> afterKey = ((InternalComposite) c).afterKey());
+      }
+      if (afterKey != null) {
+        // For composite aggregation, searchDone is determined by response result.
+        searchDone = openSearchResponse.isEmpty();
+      } else {
+        // Direct set searchDone to true for non-composite aggregation.
+        searchDone = true;
+      }
+      needClean = searchDone;
+    }
+    return openSearchResponse;
   }
 
   public OpenSearchResponse searchWithPIT(Function<SearchRequest, SearchResponse> searchAction) {
@@ -353,6 +383,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       if (searchHits != null && searchHits.length > 0) {
         searchAfter = searchHits[searchHits.length - 1].getSortValues();
         this.sourceBuilder.searchAfter(searchAfter);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(sourceBuilder);
+        }
       }
     }
     return openSearchResponse;
@@ -368,6 +401,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       }
     } finally {
       this.pitId = null;
+      this.searchAfter = null;
+      this.afterKey = null;
     }
   }
 
@@ -380,6 +415,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       }
     } finally {
       this.pitId = null;
+      this.searchAfter = null;
+      this.afterKey = null;
     }
   }
 
@@ -934,7 +971,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     return LogicalSystemLimit.create(
                         limit.getType(),
                         newInput,
-                        limit.getCollation(),
                         limit.offset,
                         limit.fetch
                     );

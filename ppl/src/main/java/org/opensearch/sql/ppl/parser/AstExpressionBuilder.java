@@ -69,10 +69,10 @@ import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.SpanClauseContext
 import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.StatsFunctionCallContext;
 import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.StringLiteralContext;
 import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.TableSourceContext;
-import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.TimechartCommandContext;
 import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParser.WcFieldExpressionContext;
 import org.opensearch.sql.ppl.antlr.parser.OpenSearchPPLParserBaseVisitor;
 import org.opensearch.sql.ppl.utils.ArgumentFactory;
+import org.opensearch.sql.ppl.utils.UnresolvedPlanHelper;
 import org.opensearch.sql.utils.DateTimeUtils;
 
 /** Class of building AST Expression nodes. */
@@ -85,6 +85,8 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
       new ImmutableMap.Builder<String, String>()
           .put("isnull", IS_NULL.getName().getFunctionName())
           .put("isnotnull", IS_NOT_NULL.getName().getFunctionName())
+          .put("regex_match", REGEXP_MATCH.getName().getFunctionName()) // compatible with old one
+          .put("regexp_replace", REPLACE.getName().getFunctionName())
           .build();
 
   private final AstBuilder astBuilder;
@@ -159,9 +161,16 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
     String operator = ctx.comparisonOperator().getText();
     if ("==".equals(operator)) {
       operator = EQUAL.getName().getFunctionName();
-    } else if (LIKE.getName().getFunctionName().equalsIgnoreCase(operator)) {
-      operator = LIKE.getName().getFunctionName();
+    } else if (LIKE.getName().getFunctionName().equalsIgnoreCase(operator)
+        && UnresolvedPlanHelper.isCalciteEnabled(astBuilder.getSettings())) {
+      operator =
+          UnresolvedPlanHelper.legacyPreferred(astBuilder.getSettings())
+              ? ILIKE.getName().getFunctionName()
+              : LIKE.getName().getFunctionName();
+    } else if (ILIKE.getName().getFunctionName().equalsIgnoreCase(operator)) {
+      operator = ILIKE.getName().getFunctionName();
     }
+
     return new Compare(operator, visit(ctx.left), visit(ctx.right));
   }
 
@@ -586,9 +595,18 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
 
   @Override
   public UnresolvedExpression visitPerFunctionCall(PerFunctionCallContext ctx) {
-    ParseTree parent = ctx.getParent();
     String perFuncName = ctx.perFunction().funcName.getText();
-    if (!(parent instanceof TimechartCommandContext)) {
+    // Walk up the parent tree to find timechart command context
+    ParseTree current = ctx.getParent();
+    boolean foundTimechartContext = false;
+    while (current != null) {
+      if (current instanceof OpenSearchPPLParser.TimechartCommandContext) {
+        foundTimechartContext = true;
+        break;
+      }
+      current = current.getParent();
+    }
+    if (!foundTimechartContext) {
       throw new SyntaxCheckException(
           perFuncName + " function can only be used within timechart command");
     }
@@ -670,7 +688,7 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
     if (ctx.fieldExpression() != null) {
       fieldExpression = visit(ctx.fieldExpression());
     } else {
-      fieldExpression = AstDSL.referImplicitTimestampField();
+      fieldExpression = AstDSL.implicitTimestampField();
     }
     Literal literal = (Literal) visit(ctx.value);
     return AstDSL.spanFromSpanLengthLiteral(fieldExpression, literal);
@@ -739,7 +757,7 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
     return new Argument("max", (Literal) this.visit(ctx.integerLiteral()));
   }
 
-  private QualifiedName visitIdentifiers(List<? extends ParserRuleContext> ctx) {
+  public QualifiedName visitIdentifiers(List<? extends ParserRuleContext> ctx) {
     return new QualifiedName(
         ctx.stream()
             .map(RuleContext::getText)
@@ -814,6 +832,15 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
   public UnresolvedExpression visitSpanLiteral(OpenSearchPPLParser.SpanLiteralContext ctx) {
     if (ctx.INTEGER_LITERAL() != null) {
       return AstDSL.intLiteral(Integer.parseInt(ctx.INTEGER_LITERAL().getText()));
+    } else if (ctx.DECIMAL_LITERAL() != null) {
+      return AstDSL.decimalLiteral(new BigDecimal(ctx.DECIMAL_LITERAL().getText()));
+    } else if (ctx.DECIMAL_SPANLENGTH() != null || ctx.DOUBLE_LITERAL() != null) {
+      throw new IllegalArgumentException(
+          StringUtils.format(
+              "Span length [%s] is invalid: floating-point time intervals are not supported.",
+              ctx.DECIMAL_SPANLENGTH() != null
+                  ? ctx.DECIMAL_SPANLENGTH().getText()
+                  : ctx.DOUBLE_LITERAL().getText()));
     } else {
       return AstDSL.stringLiteral(ctx.getText());
     }
@@ -968,47 +995,6 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
     return AstDSL.stringLiteral(osDateMathExpression);
   }
 
-  @Override
-  public UnresolvedExpression visitTimechartParameter(
-      OpenSearchPPLParser.TimechartParameterContext ctx) {
-    UnresolvedExpression timechartParameter;
-    if (ctx.SPAN() != null) {
-      // Convert span=1h to span(@timestamp, 1h)
-      Literal spanLiteral = (Literal) visit(ctx.spanLiteral());
-      timechartParameter =
-          AstDSL.spanFromSpanLengthLiteral(AstDSL.referImplicitTimestampField(), spanLiteral);
-    } else if (ctx.LIMIT() != null) {
-      Literal limit = (Literal) visit(ctx.integerLiteral());
-      if ((Integer) limit.getValue() < 0) {
-        throw new IllegalArgumentException("Limit must be a non-negative number");
-      }
-      timechartParameter = limit;
-    } else if (ctx.USEOTHER() != null) {
-      UnresolvedExpression useOther;
-      if (ctx.booleanLiteral() != null) {
-        useOther = visit(ctx.booleanLiteral());
-      } else if (ctx.ident() != null) {
-        QualifiedName ident = visitIdentifiers(List.of(ctx.ident()));
-        String useOtherValue = ident.toString();
-        if ("true".equalsIgnoreCase(useOtherValue) || "t".equalsIgnoreCase(useOtherValue)) {
-          useOther = AstDSL.booleanLiteral(true);
-        } else if ("false".equalsIgnoreCase(useOtherValue) || "f".equalsIgnoreCase(useOtherValue)) {
-          useOther = AstDSL.booleanLiteral(false);
-        } else {
-          throw new IllegalArgumentException(
-              "Invalid useOther value: " + ctx.ident().getText() + ". Expected true/false or t/f");
-        }
-      } else {
-        throw new IllegalArgumentException("value for useOther must be a boolean or identifier");
-      }
-      timechartParameter = useOther;
-    } else {
-      throw new IllegalArgumentException(
-          String.format("A parameter of timechart must be a span, limit or useOther, got %s", ctx));
-    }
-    return timechartParameter;
-  }
-
   /**
    * Process time range expressions (EARLIEST='value' or LATEST='value') It creates a Comparison
    * filter like @timestamp >= timeModifierValue
@@ -1029,5 +1015,59 @@ public class AstExpressionBuilder extends OpenSearchPPLParserBaseVisitor<Unresol
             ? SearchComparison.Operator.GREATER_OR_EQUAL
             : SearchComparison.Operator.LESS_OR_EQUAL;
     return new SearchComparison(implicitTimestampField, operator, osDateMathLiteral);
+  }
+
+  @Override
+  public UnresolvedExpression visitBinOption(OpenSearchPPLParser.BinOptionContext ctx) {
+    UnresolvedExpression option;
+    if (ctx.span != null) {
+      option = visit(ctx.span);
+    } else if (ctx.bins != null) {
+      option = visit(ctx.bins);
+    } else if (ctx.minspan != null) {
+      option = visit(ctx.minspan);
+    } else if (ctx.aligntime != null) {
+      option =
+          ctx.aligntime.EARLIEST() != null
+              ? org.opensearch.sql.ast.dsl.AstDSL.stringLiteral("earliest")
+              : ctx.aligntime.LATEST() != null
+                  ? org.opensearch.sql.ast.dsl.AstDSL.stringLiteral("latest")
+                  : visit(ctx.aligntime.literalValue());
+    } else if (ctx.start != null) {
+      option = visit(ctx.start);
+    } else if (ctx.end != null) {
+      option = visit(ctx.end);
+    } else {
+      throw new SyntaxCheckException(StringUtils.format("Unknown bin option: %s", ctx.getText()));
+    }
+    return option;
+  }
+
+  @Override
+  public UnresolvedExpression visitRowSplit(OpenSearchPPLParser.RowSplitContext ctx) {
+    // TODO: options ignored for now
+    Field field = (Field) visit(ctx.fieldExpression());
+    for (var option : ctx.binOption()) {
+      if (option.span != null) {
+        return AstDSL.alias(
+            field.getField().toString(),
+            AstDSL.spanFromSpanLengthLiteral(field, (Literal) visit(option.binSpanValue())));
+      }
+    }
+    return AstDSL.alias(ctx.fieldExpression().getText(), field);
+  }
+
+  @Override
+  public UnresolvedExpression visitColumnSplit(OpenSearchPPLParser.ColumnSplitContext ctx) {
+    Field field = (Field) visit(ctx.fieldExpression());
+    for (var option : ctx.binOption()) {
+      if (option.span != null) {
+        return AstDSL.alias(
+            field.getField().toString(),
+            AstDSL.spanFromSpanLengthLiteral(field, (Literal) visit(option.binSpanValue())));
+      }
+    }
+    // TODO: options ignored for now
+    return AstDSL.alias(ctx.fieldExpression().getText(), field);
   }
 }

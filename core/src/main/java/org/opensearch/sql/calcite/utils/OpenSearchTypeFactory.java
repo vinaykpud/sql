@@ -143,8 +143,6 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     return convertExprTypeToRelDataType(field, true);
   }
 
-  //TODO I think this should be in the interface/abstract depending on the field type and engine type, basically this will come from mapperservice
-    // Since these fields are UDTs, commented since substrait don't know how to convert these. default making them to BIGINT so that we can bypass these
   /** Converts a OpenSearch ExprCoreType field to relational type. */
   public static RelDataType convertExprTypeToRelDataType(ExprType fieldType, boolean nullable) {
     if (fieldType instanceof ExprCoreType) {
@@ -164,22 +162,17 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         case DOUBLE:
           return TYPE_FACTORY.createSqlType(SqlTypeName.DOUBLE, nullable);
         case IP:
-            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
-//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
         case STRING:
           return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
         case BOOLEAN:
           return TYPE_FACTORY.createSqlType(SqlTypeName.BOOLEAN, nullable);
         case DATE:
-            // default making them to BIGINT so that we can bypass these
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
-//          return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
+          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
         case TIME:
           return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
-//            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case TIMESTAMP:
           return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
-//          return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
         case ARRAY:
           return TYPE_FACTORY.createArrayType(
               TYPE_FACTORY.createSqlType(SqlTypeName.ANY, nullable), -1);
@@ -195,24 +188,19 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
       }
     } else {
       if (fieldType.legacyTypeName().equalsIgnoreCase("binary")) {
-          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
-//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
+        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("timestamp")) {
         return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
-//        return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("date")) {
-      return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
-//        return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
+        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("time")) {
         return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
-//          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("geo_point")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.GEOMETRY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("text")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("ip")) {
-          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
-//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
       } else if (fieldType.getOriginalPath().isPresent()) {
         return convertExprTypeToRelDataType(fieldType.getOriginalExprType(), nullable);
       } else {
@@ -252,7 +240,8 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
           INTERVAL_HOUR_SECOND,
           INTERVAL_MINUTE,
           INTERVAL_MINUTE_SECOND,
-          INTERVAL_SECOND -> INTERVAL;
+          INTERVAL_SECOND ->
+          INTERVAL;
       case ARRAY -> ARRAY;
       case MAP -> STRUCT;
       case GEOMETRY -> GEO_POINT;
@@ -322,9 +311,10 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     List<String> fieldNameList = new ArrayList<>();
     List<RelDataType> typeList = new ArrayList<>();
     Map<String, ExprType> fieldTypes = new LinkedHashMap<>(table.getFieldTypes());
-    //reason: We don't need metadata fields in the substrait plan
-//    fieldTypes.putAll(table.getReservedFieldTypes());
+    fieldTypes.putAll(table.getReservedFieldTypes());
     for (Entry<String, ExprType> entry : fieldTypes.entrySet()) {
+      // skip alias type fields when constructing schema
+      if (entry.getValue().getOriginalPath().isPresent()) continue;
       fieldNameList.add(entry.getKey());
       typeList.add(OpenSearchTypeFactory.convertExprTypeToRelDataType(entry.getValue()));
     }
@@ -351,12 +341,12 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
   }
 
   /**
-   * Checks if the RelDataType represents a numeric field. Supports both standard SQL numeric types
-   * (INTEGER, BIGINT, SMALLINT, TINYINT, FLOAT, DOUBLE, DECIMAL, REAL) and OpenSearch UDT numeric
-   * types.
+   * Checks if the RelDataType represents a numeric type. Supports standard SQL numeric types
+   * (INTEGER, BIGINT, SMALLINT, TINYINT, FLOAT, DOUBLE, DECIMAL, REAL), OpenSearch UDT numeric
+   * types, and string types (VARCHAR, CHAR).
    *
    * @param fieldType the RelDataType to check
-   * @return true if the type is numeric, false otherwise
+   * @return true if the type is numeric or string, false otherwise
    */
   public static boolean isNumericType(RelDataType fieldType) {
     // Check standard SQL numeric types
@@ -369,6 +359,11 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         || sqlType == SqlTypeName.DOUBLE
         || sqlType == SqlTypeName.DECIMAL
         || sqlType == SqlTypeName.REAL) {
+      return true;
+    }
+
+    // Check string types (VARCHAR, CHAR)
+    if (sqlType == SqlTypeName.VARCHAR || sqlType == SqlTypeName.CHAR) {
       return true;
     }
 

@@ -46,6 +46,7 @@ ML:                                 'ML';
 FILLNULL:                           'FILLNULL';
 FLATTEN:                            'FLATTEN';
 TRENDLINE:                          'TRENDLINE';
+CHART:                              'CHART';
 TIMECHART:                          'TIMECHART';
 APPENDCOL:                          'APPENDCOL';
 EXPAND:                             'EXPAND';
@@ -61,6 +62,7 @@ BUFFER_LIMIT:                       'BUFFER_LIMIT';
 LABEL:                              'LABEL';
 SHOW_NUMBERED_TOKEN:                'SHOW_NUMBERED_TOKEN';
 AGGREGATION:                        'AGGREGATION';
+APPENDPIPE:                         'APPENDPIPE';
 
 //Native JOIN KEYWORDS
 JOIN:                               'JOIN';
@@ -77,6 +79,7 @@ RIGHT_HINT:                         'HINT.RIGHT';
 // COMMAND ASSIST KEYWORDS
 AS:                                 'AS';
 BY:                                 'BY';
+OVER:                               'OVER';
 SOURCE:                             'SOURCE';
 INDEX:                              'INDEX';
 A:                                  'A';
@@ -93,6 +96,8 @@ COST:                               'COST';
 EXTENDED:                           'EXTENDED';
 OVERRIDE:                           'OVERRIDE';
 OVERWRITE:                          'OVERWRITE';
+TOP_K:                              'TOP'[0-9]+;
+BOTTOM_K:                           'BOTTOM'[0-9]+;
 
 // SORT FIELD KEYWORDS
 // TODO #3180: Fix broken sort functionality
@@ -138,6 +143,9 @@ COUNTFIELD:                         'COUNTFIELD';
 SHOWCOUNT:                          'SHOWCOUNT';
 LIMIT:                              'LIMIT';
 USEOTHER:                           'USEOTHER';
+OTHERSTR:                           'OTHERSTR';
+NULLSTR:                            'NULLSTR';
+TIMEFIELD:                          'TIMEFIELD';
 INPUT:                              'INPUT';
 OUTPUT:                             'OUTPUT';
 PATH:                               'PATH';
@@ -159,7 +167,8 @@ XOR:                                'XOR';
 TRUE:                               'TRUE';
 FALSE:                              'FALSE';
 REGEXP:                             'REGEXP';
-REGEX_MATCH:                        'REGEX_MATCH';
+REGEXP_MATCH:                       'REGEXP_MATCH' | 'REGEX_MATCH';
+REGEXP_REPLACE:                     'REGEXP_REPLACE';
 
 // DATETIME, INTERVAL AND UNIT KEYWORDS
 CONVERT_TZ:                         'CONVERT_TZ';
@@ -400,6 +409,7 @@ STRFTIME:                           'STRFTIME';
 // TEXT FUNCTIONS
 SUBSTR:                             'SUBSTR';
 SUBSTRING:                          'SUBSTRING';
+TOSTRING:                           'TOSTRING';
 LTRIM:                              'LTRIM';
 RTRIM:                              'RTRIM';
 TRIM:                               'TRIM';
@@ -419,6 +429,7 @@ CAST:                               'CAST';
 
 // BOOL FUNCTIONS
 LIKE:                               'LIKE';
+ILIKE:                              'ILIKE';
 ISNULL:                             'ISNULL';
 ISNOTNULL:                          'ISNOTNULL';
 CIDRMATCH:                          'CIDRMATCH';
@@ -432,6 +443,9 @@ ARRAY:                              'ARRAY';
 ARRAY_LENGTH:                       'ARRAY_LENGTH';
 MVAPPEND:                           'MVAPPEND';
 MVJOIN:                             'MVJOIN';
+MVINDEX:                            'MVINDEX';
+MVDEDUP:                            'MVDEDUP';
+SPLIT:                              'SPLIT';
 FORALL:                             'FORALL';
 FILTER:                             'FILTER';
 TRANSFORM:                          'TRANSFORM';
@@ -509,40 +523,35 @@ ALIGNTIME:                          'ALIGNTIME';
 // Must precede ID to avoid conflicts with identifier matching
 PERCENTILE_SHORTCUT:                PERC(INTEGER_LITERAL | DECIMAL_LITERAL) | 'P'(INTEGER_LITERAL | DECIMAL_LITERAL);
 
-SPANLENGTH: [0-9]+ (
-    'US' |'CS'|'DS'
-    |'MS'|'MILLISECOND'|'MILLISECONDS'
-    |'S'|'SEC'|'SECS'|'SECOND'|'SECONDS'
-    |'MIN'|'MINS'|'MINUTE'|'MINUTES'
-    |'H'|'HR'|'HRS'|'HOUR'|'HOURS'
-    |'H'|'HR'|'HRS'|'HOUR'|'HOURS'
-    |'D'|'DAY'|'DAYS'
-    |'W'|'WEEK'|'WEEKS'
-    |'M'|'MON'|'MONTH'|'MONTHS'
-    |'Q'|'QTR'|'QTRS'|'QUARTER'|'QUARTERS'
-    |'Y'|'YR'|'YRS'|'YEAR'|'YEARS'
-);
+fragment DAY_OR_DOUBLE:             'D';
+fragment COMMON_TIME_UNIT:           'S'|'SEC'|'SECOND'
+                                    |'M'|'MIN'|'MINUTE'
+                                    |'H'|'HR'|'HOUR'
+                                    |'DAY'|'W'|'WEEK'
+                                    |'MON'|'MONTH'
+                                    |'Q'|'QTR'|'QUARTER'
+                                    |'Y'|'YR'|'YEAR';
+fragment PLURAL_UNIT:               'MILLISECONDS'|'SECS'|'SECONDS'|'MINS'|'MINUTES'|'HRS'|'HOURS'
+                                    |'DAYS'|'WEEKS'|'MONTHS'|'QTRS'|'QUARTERS'|'YRS'|'YEARS';
+fragment SPANUNIT:                  COMMON_TIME_UNIT | PLURAL_UNIT
+                                    |'US'|'CS'|'DS'
+                                    |'MS'|'MILLISECOND';
+SPANLENGTH:                         DEC_DIGIT+ (SPANUNIT | DAY_OR_DOUBLE);
+DECIMAL_SPANLENGTH:                 (DEC_DIGIT+)? '.' DEC_DIGIT+  SPANUNIT;
 
 NUMERIC_ID : DEC_DIGIT+ ID_LITERAL;
 
 // LITERALS AND VALUES
 //STRING_LITERAL:                     DQUOTA_STRING | SQUOTA_STRING | BQUOTA_STRING;
 fragment WEEK_SNAP_UNIT:            'W' [0-7];
-fragment TIME_SNAP_UNIT:              'S' | 'SEC' | 'SECOND'
-                                    | 'M' | 'MIN' | 'MINUTE'
-                                    | 'H' | 'HR' | 'HOUR' | 'HOURS'
-                                    | 'D' | 'DAY'
-                                    | 'W' | 'WEEK' | WEEK_SNAP_UNIT
-                                    | 'MON' | 'MONTH'
-                                    | 'Q' | 'QTR' | 'QUARTER'
-                                    | 'Y' | 'YR' | 'YEAR';
+fragment TIME_SNAP_UNIT:            COMMON_TIME_UNIT | WEEK_SNAP_UNIT | DAY_OR_DOUBLE;
 TIME_SNAP:                          AT TIME_SNAP_UNIT;
 ID:                                 ID_LITERAL;
 CLUSTER:                            CLUSTER_PREFIX_LITERAL;
 INTEGER_LITERAL:                    DEC_DIGIT+;
 DECIMAL_LITERAL:                    (DEC_DIGIT+)? '.' DEC_DIGIT+;
 FLOAT_LITERAL:                      (DEC_DIGIT+)? '.' DEC_DIGIT+ 'F';
-DOUBLE_LITERAL:                     (DEC_DIGIT+)? '.' DEC_DIGIT+ 'D';
+DOUBLE_LITERAL:                     (DEC_DIGIT+)? '.' DEC_DIGIT+ DAY_OR_DOUBLE;
 
 fragment DATE_SUFFIX:               ([\-.][*0-9]+)+;
 fragment CLUSTER_PREFIX_LITERAL:    [*A-Z]+?[*A-Z_\-0-9]* COLON;

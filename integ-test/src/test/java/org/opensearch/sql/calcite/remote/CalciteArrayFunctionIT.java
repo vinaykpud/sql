@@ -370,4 +370,240 @@ public class CalciteArrayFunctionIT extends PPLIntegTestCase {
         firstRow.getString(0) + " | " + firstRow.getString(1) + " | " + firstRow.getString(2),
         firstRow.getString(3));
   }
+
+  @Test
+  public void testMvindexSingleElementPositive() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('a', 'b', 'c', 'd', 'e'), result = mvindex(arr, 1)"
+                    + " | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "string"));
+    verifyDataRows(actual, rows("b"));
+  }
+
+  @Test
+  public void testMvindexSingleElementNegative() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('a', 'b', 'c', 'd', 'e'), result = mvindex(arr, -1)"
+                    + " | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "string"));
+    verifyDataRows(actual, rows("e"));
+  }
+
+  @Test
+  public void testMvindexSingleElementNegativeMiddle() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('a', 'b', 'c', 'd', 'e'), result = mvindex(arr, -3)"
+                    + " | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "string"));
+    verifyDataRows(actual, rows("c"));
+  }
+
+  @Test
+  public void testMvindexRangePositive() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 3, 4, 5), result = mvindex(arr, 1, 3) | head"
+                    + " 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(2, 3, 4)));
+  }
+
+  @Test
+  public void testMvindexRangeNegative() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 3, 4, 5), result = mvindex(arr, -3, -1) |"
+                    + " head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(3, 4, 5)));
+  }
+
+  @Test
+  public void testMvindexRangeMixed() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 3, 4, 5), result = mvindex(arr, -4, 2) | head"
+                    + " 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(2, 3)));
+  }
+
+  @Test
+  public void testMvindexRangeFirstThree() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('alex', 'celestino', 'claudia', 'david'), result ="
+                    + " mvindex(arr, 0, 2) | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of("alex", "celestino", "claudia")));
+  }
+
+  @Test
+  public void testMvindexRangeLastThree() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('buttercup', 'dash', 'flutter', 'honey', 'ivory',"
+                    + " 'minty', 'pinky', 'rarity'), result = mvindex(arr, -3, -1) | head 1 |"
+                    + " fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of("minty", "pinky", "rarity")));
+  }
+
+  @Test
+  public void testMvindexRangeSingleElement() throws IOException {
+    // When start == end, should return single element in array
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 3, 4, 5), result = mvindex(arr, 2, 2) | head"
+                    + " 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(3)));
+  }
+
+  @Test
+  public void testMvdedupWithDuplicates() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 2, 3, 1, 4), result = mvdedup(arr) | head 1 |"
+                    + " fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(1, 2, 3, 4)));
+  }
+
+  @Test
+  public void testMvdedupWithNoDuplicates() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(1, 2, 3, 4), result = mvdedup(arr) | head 1 |"
+                    + " fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(1, 2, 3, 4)));
+  }
+
+  @Test
+  public void testMvdedupWithAllDuplicates() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(5, 5, 5, 5), result = mvdedup(arr) | head 1 |"
+                    + " fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of(5)));
+  }
+
+  @Test
+  public void testMvdedupWithEmptyArray() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array(), result = mvdedup(arr) | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of()));
+  }
+
+  @Test
+  public void testMvdedupWithStrings() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('apple', 'banana', 'apple', 'cherry', 'banana'),"
+                    + " result = mvdedup(arr) | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of("apple", "banana", "cherry")));
+  }
+
+  @Test
+  public void testMvdedupPreservesOrder() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval arr = array('z', 'a', 'z', 'b', 'a', 'c'), result ="
+                    + " mvdedup(arr) | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    // Should preserve first occurrence order: z, a, b, c
+    verifyDataRows(actual, rows(List.of("z", "a", "b", "c")));
+  }
+
+  @Test
+  public void testSplitWithSemicolonDelimiter() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval test = 'buttercup;rarity;tenderhoof;dash;mcintosh', result ="
+                    + " split(test, ';') | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of("buttercup", "rarity", "tenderhoof", "dash", "mcintosh")));
+  }
+
+  @Test
+  public void testSplitWithMultiCharDelimiter() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval test = '1a2b3c4def567890', result = split(test, 'def') | head 1 |"
+                    + " fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    verifyDataRows(actual, rows(List.of("1a2b3c4", "567890")));
+  }
+
+  @Test
+  public void testSplitWithEmptyDelimiter() throws IOException {
+    JSONObject actual =
+        executeQuery(
+            String.format(
+                "source=%s | eval test = 'abcd', result = split(test, '') | head 1 | fields result",
+                TEST_INDEX_BANK));
+
+    verifySchema(actual, schema("result", "array"));
+    // Empty delimiter splits into individual characters
+    verifyDataRows(actual, rows(List.of("a", "b", "c", "d")));
+  }
 }

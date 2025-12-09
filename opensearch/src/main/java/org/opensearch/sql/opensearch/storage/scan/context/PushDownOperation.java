@@ -17,14 +17,14 @@ import org.apache.calcite.rel.RelNode;
  */
 public record PushDownOperation(
     PushDownType type, Object digest, AbstractAction<?> action, RelNode relNode) {
-  
+
   /**
    * Constructor for backward compatibility (without RelNode)
    */
   public PushDownOperation(PushDownType type, Object digest, AbstractAction<?> action) {
     this(type, digest, action, null);
   }
-  
+
   public String toString() {
     return type + "->" + digest;
   }

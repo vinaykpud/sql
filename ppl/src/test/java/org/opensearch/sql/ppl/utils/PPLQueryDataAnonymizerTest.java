@@ -33,7 +33,7 @@ public class PPLQueryDataAnonymizerTest {
 
   @Test
   public void testSearchCommand() {
-    assertEquals("source=table a:***", anonymize("search source=t a=1"));
+    assertEquals("source=table identifier = ***", anonymize("search source=t a=1"));
   }
 
   @Test
@@ -51,6 +51,19 @@ public class PPLQueryDataAnonymizerTest {
   @Test
   public void testWhereCommand() {
     assertEquals("source=table | where identifier = ***", anonymize("search source=t | where a=1"));
+  }
+
+  @Test
+  public void testLikeFunction() {
+    assertEquals(
+        "source=table | where like(identifier,***)",
+        anonymize("search source=t | where like(a, '%llo%')"));
+    assertEquals(
+        "source=table | where like(identifier,***,***)",
+        anonymize("search source=t | where like(a, '%llo%', true)"));
+    assertEquals(
+        "source=table | where like(identifier,***,***)",
+        anonymize("search source=t | where like(a, '%llo%', false)"));
   }
 
   // Fields and Table Command Tests
@@ -255,9 +268,40 @@ public class PPLQueryDataAnonymizerTest {
   @Test
   public void testTimechartCommand() {
     assertEquals(
-        "source=table | timechart span=span(identifier, *** m) limit=10 useother=true count() by"
-            + " identifier",
+        "source=table | timechart count() by identifier",
         anonymize("source=t | timechart count() by host"));
+
+    assertEquals(
+        "source=table | timechart timefield=time_identifier max(identifier)",
+        anonymize("source=t | timechart timefield=month max(revenue)"));
+  }
+
+  @Test
+  public void testChartCommand() {
+    assertEquals(
+        "source=table | chart count(identifier) by identifier identifier",
+        anonymize("source=t | chart count(age) by gender country"));
+  }
+
+  @Test
+  public void testChartCommandWithParameters() {
+    assertEquals(
+        "source=table | chart limit=*** useother=*** avg(identifier) by identifier",
+        anonymize("source=t | chart limit=5 useother=false avg(balance) by state"));
+  }
+
+  @Test
+  public void testChartCommandOver() {
+    assertEquals(
+        "source=table | chart avg(identifier) by identifier",
+        anonymize("source=t | chart avg(balance) over gender"));
+  }
+
+  @Test
+  public void testChartCommandOverBy() {
+    assertEquals(
+        "source=table | chart sum(identifier) by identifier identifier",
+        anonymize("source=t | chart sum(amount) over gender by age"));
   }
 
   // todo, sort order is ignored, it doesn't impact the log analysis.
@@ -358,6 +402,13 @@ public class PPLQueryDataAnonymizerTest {
     assertEquals(
         "source=table | where identifier = *** and identifier = ***",
         anonymize("source=t | where a=1 and b=2"));
+  }
+
+  @Test
+  public void testAndExpressionWithMetaData() {
+    assertEquals(
+        "source=table | where meta_identifier = *** and identifier = ***",
+        anonymize("source=t | where _id=1 and b=2"));
   }
 
   @Test
@@ -726,6 +777,19 @@ public class PPLQueryDataAnonymizerTest {
   }
 
   @Test
+  public void testAppendPipe() {
+    assertEquals(
+        "source=table | appendpipe [ | stats count()]",
+        anonymize("source=t | appendpipe [stats count()]"));
+    assertEquals(
+        "source=table | appendpipe [ | where identifier = ***]",
+        anonymize("source=t | appendpipe [where fieldname=='pattern']"));
+    assertEquals(
+        "source=table | appendpipe [ | sort identifier]",
+        anonymize("source=t | appendpipe [sort fieldname]"));
+  }
+
+  @Test
   public void testRexCommand() {
     when(settings.getSettingValue(Key.PPL_REX_MAX_MATCH_LIMIT)).thenReturn(10);
 
@@ -766,6 +830,44 @@ public class PPLQueryDataAnonymizerTest {
     assertEquals(
         "source=table | eval identifier=mvappend(identifier,***,***) | fields + identifier",
         anonymize("source=t | eval result=mvappend(a, 'b', 'c') | fields result"));
+  }
+
+  @Test
+  public void testMvindex() {
+    // Test mvindex with single element access
+    assertEquals(
+        "source=table | eval identifier=mvindex(array(***,***,***),***) | fields + identifier",
+        anonymize("source=t | eval result=mvindex(array('a', 'b', 'c'), 1) | fields result"));
+    // Test mvindex with range access
+    assertEquals(
+        "source=table | eval identifier=mvindex(array(***,***,***,***,***),***,***) | fields +"
+            + " identifier",
+        anonymize("source=t | eval result=mvindex(array(1, 2, 3, 4, 5), 1, 3) | fields result"));
+  }
+
+  @Test
+  public void testSplit() {
+    // Test split with delimiter
+    assertEquals(
+        "source=table | eval identifier=split(***,***) | fields + identifier",
+        anonymize("source=t | eval result=split('a;b;c', ';') | fields result"));
+    // Test split with field reference
+    assertEquals(
+        "source=table | eval identifier=split(identifier,***) | fields + identifier",
+        anonymize("source=t | eval result=split(text, ',') | fields result"));
+    // Test split with empty delimiter (splits into characters)
+    assertEquals(
+        "source=table | eval identifier=split(***,***) | fields + identifier",
+        anonymize("source=t | eval result=split('abcd', '') | fields result"));
+  }
+
+  @Test
+  public void testMvdedup() {
+    // Test mvdedup with array containing duplicates
+    assertEquals(
+        "source=table | eval identifier=mvdedup(array(***,***,***,***,***,***)) | fields +"
+            + " identifier",
+        anonymize("source=t | eval result=mvdedup(array(1, 2, 2, 3, 1, 4)) | fields result"));
   }
 
   @Test
@@ -825,8 +927,35 @@ public class PPLQueryDataAnonymizerTest {
   @Test
   public void testSearchWithAbsoluteTimeRange() {
     assertEquals(
-        "source=table (@timestamp:*** AND (@timestamp:***",
+        "source=table (time_identifier >= ***) AND (time_identifier <= ***)",
         anonymize("search source=t earliest='2012-12-10 15:00:00' latest=now"));
+  }
+
+  @Test
+  public void testSearchWithIn() {
+    assertEquals("source=table identifier IN ***", anonymize("search source=t balance in (2000)"));
+  }
+
+  @Test
+  public void testSearchWithNot() {
+    assertEquals(
+        "source=table NOT(identifier = ***)", anonymize("search NOT balance=2000 source=t"));
+  }
+
+  @Test
+  public void testSearchWithGroup() {
+    assertEquals(
+        "source=table ((identifier = *** OR identifier = ***) AND identifier > ***)",
+        anonymize(
+            "search (severityText=\"ERROR\" OR severityText=\"WARN\") AND severityNumber>10"
+                + " source=t"));
+  }
+
+  @Test
+  public void testSearchWithOr() {
+    assertEquals(
+        "source=table (time_identifier >= *** OR time_identifier <= ***)",
+        anonymize("search source=t earliest='2012-12-10 15:00:00' or latest=now"));
   }
 
   @Test

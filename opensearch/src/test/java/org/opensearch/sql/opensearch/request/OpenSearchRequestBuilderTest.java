@@ -96,8 +96,8 @@ class OpenSearchRequestBuilderTest {
     requestBuilder.pushDownTrackedScore(true);
 
     assertEquals(
-        new OpenSearchQueryRequest(
-            new OpenSearchRequest.IndexName("test"),
+        OpenSearchQueryRequest.of(
+            "test",
             new SearchSourceBuilder()
                 .from(offset)
                 .size(limit)
@@ -105,7 +105,7 @@ class OpenSearchRequestBuilderTest {
                 .trackScores(true),
             exprValueFactory,
             List.of()),
-        requestBuilder.build(indexName, DEFAULT_QUERY_TIMEOUT, client));
+        requestBuilder.build(indexName, null, client));
   }
 
   @Test
@@ -127,7 +127,7 @@ class OpenSearchRequestBuilderTest {
     requestBuilder.pushDownPageSize(2);
 
     assertEquals(
-        new OpenSearchQueryRequest(
+        OpenSearchQueryRequest.pitOf(
             new OpenSearchRequest.IndexName("test"),
             new SearchSourceBuilder().from(offset).size(2).timeout(DEFAULT_QUERY_TIMEOUT),
             exprValueFactory,
@@ -146,7 +146,7 @@ class OpenSearchRequestBuilderTest {
     requestBuilder.pushDownLimit(limit, offset);
 
     assertEquals(
-        new OpenSearchQueryRequest(
+        OpenSearchQueryRequest.pitOf(
             new OpenSearchRequest.IndexName("test"),
             new SearchSourceBuilder()
                 .from(offset)
@@ -167,12 +167,12 @@ class OpenSearchRequestBuilderTest {
     requestBuilder.pushDownLimit(limit, offset);
 
     assertEquals(
-        new OpenSearchQueryRequest(
-            new OpenSearchRequest.IndexName("test"),
+        OpenSearchQueryRequest.of(
+            "test",
             new SearchSourceBuilder().from(offset).size(limit).timeout(DEFAULT_QUERY_TIMEOUT),
             exprValueFactory,
             List.of()),
-        requestBuilder.build(indexName, DEFAULT_QUERY_TIMEOUT, client));
+        requestBuilder.build(indexName, null, client));
   }
 
   @Test
@@ -185,7 +185,7 @@ class OpenSearchRequestBuilderTest {
     when(client.createPit(any(CreatePitRequest.class))).thenReturn("samplePITId");
 
     assertEquals(
-        new OpenSearchQueryRequest(
+        OpenSearchQueryRequest.pitOf(
             new OpenSearchRequest.IndexName("test"),
             new SearchSourceBuilder().from(offset).size(pageSize).timeout(DEFAULT_QUERY_TIMEOUT),
             exprValueFactory,
@@ -331,6 +331,27 @@ class OpenSearchRequestBuilderTest {
     assertSearchSourceBuilder(expectedSourceBuilder, requestBuilder);
   }
 
+  @Test
+  void test_push_down_query_with_bool_filter_for_calcite() {
+    BoolQueryBuilder initialBoolQuery =
+        QueryBuilders.boolQuery().filter(QueryBuilders.termQuery("name", "John"));
+
+    SearchSourceBuilder sourceBuilder = requestBuilder.getSourceBuilder();
+    sourceBuilder.query(initialBoolQuery);
+
+    QueryBuilder newQuery = QueryBuilders.termQuery("intA", 1);
+    requestBuilder.pushDownFilterForCalcite(newQuery);
+    initialBoolQuery.filter(newQuery);
+    SearchSourceBuilder expectedSourceBuilder =
+        new SearchSourceBuilder()
+            .from(DEFAULT_OFFSET)
+            .size(MAX_RESULT_WINDOW)
+            .timeout(DEFAULT_QUERY_TIMEOUT)
+            .query(QueryBuilders.boolQuery().filter(initialBoolQuery).filter(newQuery));
+
+    assertSearchSourceBuilder(expectedSourceBuilder, requestBuilder);
+  }
+
   void assertSearchSourceBuilder(
       SearchSourceBuilder expected, OpenSearchRequestBuilder requestBuilder)
       throws UnsupportedOperationException {
@@ -413,7 +434,7 @@ class OpenSearchRequestBuilderTest {
         requestBuilder);
 
     assertEquals(
-        new OpenSearchQueryRequest(
+        OpenSearchQueryRequest.pitOf(
             new OpenSearchRequest.IndexName("test"),
             new SearchSourceBuilder()
                 .from(DEFAULT_OFFSET)
@@ -448,8 +469,8 @@ class OpenSearchRequestBuilderTest {
         requestBuilder);
 
     assertEquals(
-        new OpenSearchQueryRequest(
-            new OpenSearchRequest.IndexName("test"),
+        OpenSearchQueryRequest.of(
+            "test",
             new SearchSourceBuilder()
                 .from(offset)
                 .size(limit)
@@ -457,7 +478,7 @@ class OpenSearchRequestBuilderTest {
                 .fetchSource("intA", null),
             exprValueFactory,
             List.of("intA")),
-        requestBuilder.build(indexName, DEFAULT_QUERY_TIMEOUT, client));
+        requestBuilder.build(indexName, null, client));
   }
 
   @Test
@@ -478,8 +499,8 @@ class OpenSearchRequestBuilderTest {
         requestBuilder);
 
     assertEquals(
-        new OpenSearchQueryRequest(
-            new OpenSearchRequest.IndexName("test"),
+        OpenSearchQueryRequest.of(
+            "test",
             new SearchSourceBuilder()
                 .from(offset)
                 .size(limit)
@@ -487,7 +508,7 @@ class OpenSearchRequestBuilderTest {
                 .fetchSource("intA", null),
             exprValueFactory,
             List.of("intA")),
-        requestBuilder.build(indexName, DEFAULT_QUERY_TIMEOUT, client));
+        requestBuilder.build(indexName, null, client));
   }
 
   @Test
@@ -541,7 +562,7 @@ class OpenSearchRequestBuilderTest {
         requestBuilder);
 
     assertEquals(
-        new OpenSearchQueryRequest(
+        OpenSearchQueryRequest.pitOf(
             new OpenSearchRequest.IndexName("test"),
             new SearchSourceBuilder()
                 .from(DEFAULT_OFFSET)

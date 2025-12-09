@@ -19,6 +19,10 @@ pplStatement
    | queryStatement
    ;
 
+subPipeline
+   : PIPE? commands (PIPE commands)*
+   ;
+
 queryStatement
    : (PIPE)? pplCommands (PIPE commands)*
    ;
@@ -77,8 +81,10 @@ commands
    | flattenCommand
    | reverseCommand
    | regexCommand
+   | chartCommand
    | timechartCommand
    | rexCommand
+   | appendPipeCommand
    | replaceCommand
    ;
 
@@ -119,6 +125,7 @@ commandName
    | APPEND
    | MULTISEARCH
    | REX
+   | APPENDPIPE
    | REPLACE
    ;
 
@@ -219,6 +226,10 @@ statsCommand
    : STATS statsArgs statsAggTerm (COMMA statsAggTerm)* (statsByClause)? (dedupSplitArg)?
    ;
 
+appendPipeCommand
+   : APPENDPIPE LT_SQR_PRTHS subPipeline RT_SQR_PRTHS
+   ;
+
 statsArgs
    : (partitionsArg | allnumArg | delimArg | bucketNullableArg)*
    ;
@@ -244,7 +255,7 @@ dedupSplitArg
    ;
 
 eventstatsCommand
-   : EVENTSTATS eventstatsAggTerm (COMMA eventstatsAggTerm)* (statsByClause)?
+   : EVENTSTATS (bucketNullableArg)? eventstatsAggTerm (COMMA eventstatsAggTerm)* (statsByClause)?
    ;
 
 streamstatsCommand
@@ -252,7 +263,7 @@ streamstatsCommand
    ;
 
 streamstatsArgs
-   : (currentArg | windowArg | globalArg | resetBeforeArg | resetAfterArg)*
+   : (currentArg | windowArg | globalArg | resetBeforeArg | resetAfterArg | bucketNullableArg)*
    ;
 
 currentArg
@@ -287,19 +298,45 @@ reverseCommand
    : REVERSE
    ;
 
+chartCommand
+  : CHART chartOptions* statsAggTerm (OVER rowSplit)? (BY columnSplit)? chartOptions*
+  | CHART chartOptions* statsAggTerm BY rowSplit (COMMA)? columnSplit chartOptions*
+  ;
+
+chartOptions
+  : LIMIT EQUAL integerLiteral
+  | LIMIT EQUAL (TOP_K | BOTTOM_K)
+  | USEOTHER EQUAL booleanLiteral
+  | OTHERSTR EQUAL stringLiteral
+  | USENULL EQUAL booleanLiteral
+  | NULLSTR EQUAL stringLiteral
+  ;
+
+rowSplit
+  : fieldExpression binOption*
+  ;
+
+columnSplit
+  : fieldExpression binOption*
+  ;
+
 timechartCommand
-   : TIMECHART timechartParameter* statsFunction (BY fieldExpression)?
+   : TIMECHART timechartParameter* statsAggTerm (BY fieldExpression)? timechartParameter*
    ;
 
 timechartParameter
    : LIMIT EQUAL integerLiteral
    | SPAN EQUAL spanLiteral
    | USEOTHER EQUAL (booleanLiteral | ident)
+   | TIMEFIELD EQUAL (ident | stringLiteral)
    ;
 
 spanLiteral
    : SPANLENGTH
+   | DECIMAL_SPANLENGTH
+   | DOUBLE_LITERAL  // 1.5d can also represent decimal span length
    | INTEGER_LITERAL
+   | DECIMAL_LITERAL
    ;
 
 evalCommand
@@ -368,6 +405,7 @@ spathParameter
 
 indexablePath
    : pathElement (DOT pathElement)*
+   | stringLiteral
    ;
 
 pathElement
@@ -883,10 +921,12 @@ evalFunctionCall
    : evalFunctionName LT_PRTHS functionArgs RT_PRTHS
    ;
 
+
 // cast function
 dataTypeFunctionCall
    : CAST LT_PRTHS logicalExpression AS convertedDataType RT_PRTHS
    ;
+
 
 convertedDataType
    : typeName = DATE
@@ -1056,6 +1096,9 @@ collectionFunctionName
     | ARRAY_LENGTH
     | MVAPPEND
     | MVJOIN
+    | MVINDEX
+    | MVDEDUP
+    | SPLIT
     | FORALL
     | EXISTS
     | FILTER
@@ -1226,10 +1269,11 @@ timestampFunctionName
 // condition function return boolean value
 conditionFunctionName
    : LIKE
+   | ILIKE
    | ISNULL
    | ISNOTNULL
    | CIDRMATCH
-   | REGEX_MATCH
+   | REGEXP_MATCH
    | JSON_VALID
    | ISPRESENT
    | ISEMPTY
@@ -1253,6 +1297,7 @@ systemFunctionName
 textFunctionName
    : SUBSTR
    | SUBSTRING
+   | TOSTRING
    | TRIM
    | LTRIM
    | RTRIM
@@ -1268,6 +1313,7 @@ textFunctionName
    | LOCATE
    | REPLACE
    | REVERSE
+   | REGEXP_REPLACE
    ;
 
 positionFunctionName
@@ -1285,6 +1331,7 @@ positionFunctionName
    | NOT_GREATER
    | REGEXP
    | LIKE
+   | ILIKE
    ;
 
 singleFieldRelevanceFunctionName
@@ -1472,6 +1519,7 @@ searchableKeyWord
    | USING
    | VALUE
    | CAST
+   | TOSTRING
    | GET_FORMAT
    | EXTRACT
    | INTERVAL
@@ -1524,6 +1572,7 @@ searchableKeyWord
    | SED
    | MAX_MATCH
    | OFFSET_FIELD
+   | TIMEFIELD
    | patternMethod
    | patternMode
    // AGGREGATIONS AND WINDOW

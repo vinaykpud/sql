@@ -5,10 +5,13 @@
 
 package org.opensearch.sql.calcite.clickbench;
 
+import static org.opensearch.sql.util.MatcherUtils.assertYamlEqualsIgnoreId;
+
 import static org.opensearch.sql.util.MatcherUtils.assertJsonEquals;
 import static org.opensearch.sql.util.MatcherUtils.assertYamlEqualsIgnoreId;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -73,9 +76,19 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
     }
   }
 
-  /** Ignore queries that are not supported by Calcite. */
-  protected Set<Integer> ignored() {
-    return Set.of(41); // query currently fails on main
+  /** Ignore queries that are not supported. */
+  protected Set<Integer> ignored() throws IOException {
+    Set ignored = new HashSet();
+    if (!isCalciteEnabled()) {
+      // regexp_replace() is not supported in v2
+      ignored.add(29);
+    }
+    if (!GCedMemoryUsage.initialized()) {
+      // Ignore q30 when use RuntimeMemoryUsage,
+      // because of too much script push down, which will cause ResourceMonitor restriction.
+      ignored.add(30);
+    }
+    return ignored;
   }
 
   @Test

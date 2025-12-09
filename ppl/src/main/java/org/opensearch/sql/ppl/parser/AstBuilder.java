@@ -42,6 +42,7 @@ import java.util.stream.Collectors;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.tree.ParseTree;
+import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.lang3.tuple.Pair;
 import org.opensearch.sql.ast.EmptySourcePropagateVisitor;
 import org.opensearch.sql.ast.dsl.AstDSL;
@@ -62,8 +63,6 @@ import org.opensearch.sql.ast.expression.QualifiedName;
 import org.opensearch.sql.ast.expression.SearchAnd;
 import org.opensearch.sql.ast.expression.SearchExpression;
 import org.opensearch.sql.ast.expression.SearchGroup;
-import org.opensearch.sql.ast.expression.Span;
-import org.opensearch.sql.ast.expression.SpanUnit;
 import org.opensearch.sql.ast.expression.UnresolvedArgument;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
 import org.opensearch.sql.ast.expression.WindowFrame;
@@ -72,6 +71,8 @@ import org.opensearch.sql.ast.tree.AD;
 import org.opensearch.sql.ast.tree.Aggregation;
 import org.opensearch.sql.ast.tree.Append;
 import org.opensearch.sql.ast.tree.AppendCol;
+import org.opensearch.sql.ast.tree.AppendPipe;
+import org.opensearch.sql.ast.tree.Chart;
 import org.opensearch.sql.ast.tree.CountBin;
 import org.opensearch.sql.ast.tree.Dedupe;
 import org.opensearch.sql.ast.tree.DefaultBin;
@@ -108,10 +109,10 @@ import org.opensearch.sql.ast.tree.SpanBin;
 import org.opensearch.sql.ast.tree.StreamWindow;
 import org.opensearch.sql.ast.tree.SubqueryAlias;
 import org.opensearch.sql.ast.tree.TableFunction;
-import org.opensearch.sql.ast.tree.Timechart;
 import org.opensearch.sql.ast.tree.Trendline;
 import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.ast.tree.Window;
+import org.opensearch.sql.calcite.plan.OpenSearchConstants;
 import org.opensearch.sql.common.antlr.SyntaxCheckException;
 import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.common.setting.Settings.Key;
@@ -164,6 +165,16 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
   }
 
   @Override
+  public UnresolvedPlan visitSubPipeline(OpenSearchPPLParser.SubPipelineContext ctx) {
+    List<OpenSearchPPLParser.CommandsContext> cmds = ctx.commands();
+    if (cmds.isEmpty()) {
+      throw new IllegalArgumentException("appendpipe [] is empty");
+    }
+    UnresolvedPlan seed = visit(cmds.getFirst());
+    return cmds.stream().skip(1).map(this::visit).reduce(seed, (left, op) -> op.attach(left));
+  }
+
+  @Override
   public UnresolvedPlan visitSubSearch(OpenSearchPPLParser.SubSearchContext ctx) {
     UnresolvedPlan searchCommand = visit(ctx.searchCommand());
     // Exclude metadata fields for subquery
@@ -201,7 +212,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
 
       // Create Search node with relation and query string
       Relation relation = (Relation) visitFromClause(ctx.fromClause());
-      return new Search(relation, queryString);
+      return new Search(relation, queryString, combined);
     }
   }
 
@@ -232,6 +243,12 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
   @Override
   public UnresolvedPlan visitWhereCommand(WhereCommandContext ctx) {
     return new Filter(internalVisitExpression(ctx.logicalExpression()));
+  }
+
+  @Override
+  public UnresolvedPlan visitAppendPipeCommand(OpenSearchPPLParser.AppendPipeCommandContext ctx) {
+    UnresolvedPlan plan = visit(ctx.subPipeline());
+    return new AppendPipe(plan);
   }
 
   @Override
@@ -427,16 +444,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
   /** Stats command. */
   @Override
   public UnresolvedPlan visitStatsCommand(StatsCommandContext ctx) {
-    ImmutableList.Builder<UnresolvedExpression> aggListBuilder = new ImmutableList.Builder<>();
-    for (OpenSearchPPLParser.StatsAggTermContext aggCtx : ctx.statsAggTerm()) {
-      UnresolvedExpression aggExpression = internalVisitExpression(aggCtx.statsFunction());
-      String name =
-          aggCtx.alias == null
-              ? getTextInQuery(aggCtx)
-              : StringUtils.unquoteIdentifier(aggCtx.alias.getText());
-      Alias alias = new Alias(name, aggExpression);
-      aggListBuilder.add(alias);
-    }
+    List<UnresolvedExpression> aggregations = parseAggTerms(ctx.statsAggTerm());
 
     List<UnresolvedExpression> groupList =
         Optional.ofNullable(ctx.statsByClause())
@@ -461,7 +469,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
 
     Aggregation aggregation =
         new Aggregation(
-            aggListBuilder.build(),
+            aggregations,
             Collections.emptyList(),
             groupList,
             span,
@@ -471,14 +479,23 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
 
   /** Eventstats command. */
   public UnresolvedPlan visitEventstatsCommand(OpenSearchPPLParser.EventstatsCommandContext ctx) {
+    // 1. Parse arguments from the eventstats command
+    List<Argument> argExprList = ArgumentFactory.getArgumentList(ctx, settings);
+    ArgumentMap arguments = ArgumentMap.of(argExprList);
+
+    // bucket_nullable
+    boolean bucketNullable = (Boolean) arguments.get(Argument.BUCKET_NULLABLE).getValue();
+
+    // 2. Build groupList
+    List<UnresolvedExpression> groupList = getPartitionExprList(ctx.statsByClause());
+
     ImmutableList.Builder<UnresolvedExpression> windownFunctionListBuilder =
         new ImmutableList.Builder<>();
     for (OpenSearchPPLParser.EventstatsAggTermContext aggCtx : ctx.eventstatsAggTerm()) {
       UnresolvedExpression windowFunction = internalVisitExpression(aggCtx.windowFunction());
       // set partition by list for window function
       if (windowFunction instanceof WindowFunction) {
-        ((WindowFunction) windowFunction)
-            .setPartitionByList(getPartitionExprList(ctx.statsByClause()));
+        ((WindowFunction) windowFunction).setPartitionByList(groupList);
       }
       String name =
           aggCtx.alias == null
@@ -488,19 +505,20 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
       windownFunctionListBuilder.add(alias);
     }
 
-    return new Window(windownFunctionListBuilder.build());
+    return new Window(windownFunctionListBuilder.build(), groupList, bucketNullable);
   }
 
   /** Streamstats command. */
   public UnresolvedPlan visitStreamstatsCommand(OpenSearchPPLParser.StreamstatsCommandContext ctx) {
     // 1. Parse arguments from the streamstats command
-    List<Argument> argExprList = ArgumentFactory.getArgumentList(ctx);
+    List<Argument> argExprList = ArgumentFactory.getArgumentList(ctx, settings);
     ArgumentMap arguments = ArgumentMap.of(argExprList);
 
-    // current, window and global from ArgumentFactory
+    // current, window, global and bucket_nullable from ArgumentFactory
     boolean current = (Boolean) arguments.get("current").getValue();
     int window = (Integer) arguments.get("window").getValue();
     boolean global = (Boolean) arguments.get("global").getValue();
+    boolean bucketNullable = (Boolean) arguments.get(Argument.BUCKET_NULLABLE).getValue();
 
     if (window < 0) {
       throw new IllegalArgumentException("Window size must be >= 0, but got: " + window);
@@ -551,6 +569,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
         current,
         window,
         global,
+        bucketNullable,
         resetBeforeExpr,
         resetAfterExpr);
   }
@@ -609,60 +628,39 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
     UnresolvedExpression aligntime = null;
     UnresolvedExpression start = null;
     UnresolvedExpression end = null;
-
+    String errorFormat = "Duplicate %s parameter in bin command";
     // Process each bin option: detect duplicates and assign values in one shot
     for (OpenSearchPPLParser.BinOptionContext option : ctx.binOption()) {
+      UnresolvedExpression resolvedOption = internalVisitExpression(option);
       // SPAN parameter
       if (option.span != null) {
-        if (!seenParams.add("SPAN")) {
-          throw new IllegalArgumentException("Duplicate SPAN parameter in bin command");
-        }
-        span = internalVisitExpression(option.span);
+        checkParamDuplication(seenParams, option.SPAN(), errorFormat);
+        span = resolvedOption;
       }
-
       // BINS parameter
       if (option.bins != null) {
-        if (!seenParams.add("BINS")) {
-          throw new IllegalArgumentException("Duplicate BINS parameter in bin command");
-        }
-        bins = Integer.parseInt(option.bins.getText());
+        checkParamDuplication(seenParams, option.BINS(), errorFormat);
+        bins = (Integer) ((Literal) resolvedOption).getValue();
       }
-
       // MINSPAN parameter
       if (option.minspan != null) {
-        if (!seenParams.add("MINSPAN")) {
-          throw new IllegalArgumentException("Duplicate MINSPAN parameter in bin command");
-        }
-        minspan = internalVisitExpression(option.minspan);
+        checkParamDuplication(seenParams, option.MINSPAN(), errorFormat);
+        minspan = resolvedOption;
       }
-
       // ALIGNTIME parameter
       if (option.aligntime != null) {
-        if (!seenParams.add("ALIGNTIME")) {
-          throw new IllegalArgumentException("Duplicate ALIGNTIME parameter in bin command");
-        }
-        aligntime =
-            option.aligntime.EARLIEST() != null
-                ? org.opensearch.sql.ast.dsl.AstDSL.stringLiteral("earliest")
-                : option.aligntime.LATEST() != null
-                    ? org.opensearch.sql.ast.dsl.AstDSL.stringLiteral("latest")
-                    : internalVisitExpression(option.aligntime.literalValue());
+        checkParamDuplication(seenParams, option.ALIGNTIME(), errorFormat);
+        aligntime = resolvedOption;
       }
-
       // START parameter
       if (option.start != null) {
-        if (!seenParams.add("START")) {
-          throw new IllegalArgumentException("Duplicate START parameter in bin command");
-        }
-        start = internalVisitExpression(option.start);
+        checkParamDuplication(seenParams, option.START(), errorFormat);
+        start = resolvedOption;
       }
-
       // END parameter
       if (option.end != null) {
-        if (!seenParams.add("END")) {
-          throw new IllegalArgumentException("Duplicate END parameter in bin command");
-        }
-        end = internalVisitExpression(option.end);
+        checkParamDuplication(seenParams, option.END(), errorFormat);
+        end = resolvedOption;
       }
     }
 
@@ -688,6 +686,14 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
     } else {
       // 5. No parameters (default) -> DefaultBin
       return DefaultBin.builder().field(field).alias(alias).build();
+    }
+  }
+
+  private void checkParamDuplication(
+      Set<String> seenParams, TerminalNode terminalNode, String errorFormat) {
+    String paramName = terminalNode.getText();
+    if (!seenParams.add(paramName)) {
+      throw new IllegalArgumentException(StringUtils.format(errorFormat, paramName));
     }
   }
 
@@ -728,37 +734,66 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
     return new Reverse();
   }
 
+  /** Chart command. */
+  @Override
+  public UnresolvedPlan visitChartCommand(OpenSearchPPLParser.ChartCommandContext ctx) {
+    UnresolvedExpression rowSplit =
+        ctx.rowSplit() == null ? null : internalVisitExpression(ctx.rowSplit());
+    UnresolvedExpression columnSplit =
+        ctx.columnSplit() == null ? null : internalVisitExpression(ctx.columnSplit());
+    List<Argument> arguments = ArgumentFactory.getArgumentList(ctx);
+    UnresolvedExpression aggFunction = parseAggTerms(List.of(ctx.statsAggTerm())).getFirst();
+    return Chart.builder()
+        .rowSplit(rowSplit)
+        .columnSplit(columnSplit)
+        .aggregationFunction(aggFunction)
+        .arguments(arguments)
+        .build();
+  }
+
+  private List<UnresolvedExpression> parseAggTerms(
+      List<OpenSearchPPLParser.StatsAggTermContext> statsAggTermContexts) {
+    ImmutableList.Builder<UnresolvedExpression> aggListBuilder = new ImmutableList.Builder<>();
+    for (OpenSearchPPLParser.StatsAggTermContext aggCtx : statsAggTermContexts) {
+      UnresolvedExpression aggExpression = internalVisitExpression(aggCtx.statsFunction());
+      String name =
+          aggCtx.alias == null
+              ? getTextInQuery(aggCtx)
+              : StringUtils.unquoteIdentifier(aggCtx.alias.getText());
+      Alias alias = new Alias(name, aggExpression);
+      aggListBuilder.add(alias);
+    }
+    return aggListBuilder.build();
+  }
+
   /** Timechart command. */
   @Override
   public UnresolvedPlan visitTimechartCommand(OpenSearchPPLParser.TimechartCommandContext ctx) {
-    UnresolvedExpression binExpression =
-        AstDSL.span(AstDSL.referImplicitTimestampField(), AstDSL.intLiteral(1), SpanUnit.m);
-    Integer limit = 10;
-    Boolean useOther = true;
-    // Process timechart parameters
-    for (OpenSearchPPLParser.TimechartParameterContext paramCtx : ctx.timechartParameter()) {
-      UnresolvedExpression param = internalVisitExpression(paramCtx);
-      if (param instanceof Span) {
-        binExpression = param;
-      } else if (param instanceof Literal literal) {
-        if (DataType.BOOLEAN.equals(literal.getType())) {
-          useOther = (Boolean) literal.getValue();
-        } else if (DataType.INTEGER.equals(literal.getType())
-            || DataType.LONG.equals(literal.getType())) {
-          limit = (Integer) literal.getValue();
-        }
-      }
-    }
-
-    UnresolvedExpression aggregateFunction = internalVisitExpression(ctx.statsFunction());
+    List<Argument> arguments = ArgumentFactory.getArgumentList(ctx, expressionBuilder);
+    ArgumentMap argMap = ArgumentMap.of(arguments);
+    Literal spanLiteral = argMap.getOrDefault("spanliteral", AstDSL.stringLiteral("1m"));
+    String timeFieldName =
+        Optional.ofNullable(argMap.get("timefield"))
+            .map(l -> (String) l.getValue())
+            .orElse(OpenSearchConstants.IMPLICIT_FIELD_TIMESTAMP);
+    Field spanField = AstDSL.field(timeFieldName);
+    Alias span =
+        AstDSL.alias(timeFieldName, AstDSL.spanFromSpanLengthLiteral(spanField, spanLiteral));
+    UnresolvedExpression aggregateFunction = parseAggTerms(List.of(ctx.statsAggTerm())).getFirst();
     UnresolvedExpression byField =
-        ctx.fieldExpression() != null ? internalVisitExpression(ctx.fieldExpression()) : null;
-
-    return new Timechart(null, aggregateFunction)
-        .span(binExpression)
-        .by(byField)
-        .limit(limit)
-        .useOther(useOther);
+        Optional.ofNullable(ctx.fieldExpression())
+            .map(
+                f ->
+                    AstDSL.alias(
+                        StringUtils.unquoteIdentifier(getTextInQuery(f)),
+                        internalVisitExpression(f)))
+            .orElse(null);
+    return Chart.builder()
+        .aggregationFunction(aggregateFunction)
+        .rowSplit(span)
+        .columnSplit(byField)
+        .arguments(arguments)
+        .build();
   }
 
   /** Eval command. */
@@ -912,8 +947,7 @@ public class AstBuilder extends OpenSearchPPLParserBaseVisitor<UnresolvedPlan> {
             AstDSL.intLiteral(settings.getSettingValue(Key.PATTERN_MAX_SAMPLE_COUNT)));
     Literal patternBufferLimit =
         cmdOptions.getOrDefault(
-            "max_sample_count",
-            AstDSL.intLiteral(settings.getSettingValue(Key.PATTERN_BUFFER_LIMIT)));
+            "buffer_limit", AstDSL.intLiteral(settings.getSettingValue(Key.PATTERN_BUFFER_LIMIT)));
     Literal showNumberedToken =
         cmdOptions.getOrDefault(
             "show_numbered_token",

@@ -82,7 +82,7 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
     // remove this rule otherwise opensearch can't correctly interpret approx_count_distinct()
     // it is converted to cardinality aggregation in OpenSearch
     planner.removeRule(CoreRules.AGGREGATE_EXPAND_DISTINCT_AGGREGATES);
-    
+
     // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
     // This is needed for Substrait compatibility which doesn't support SEARCH operations
     planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
@@ -124,12 +124,12 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
         LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
         int index = 0;
         for (var operation : pushDownContext) {
-          LOG.info("  Operation {}: type={}, relNode={}", 
-              index++, 
-              operation.type(), 
+          LOG.info("  Operation {}: type={}, relNode={}",
+              index++,
+              operation.type(),
               operation.relNode() != null ? operation.relNode().toString() : "NULL");
         }
-        
+
         // Create a base CalciteLogicalIndexScan for reconstruction
         CalciteLogicalIndexScan logicalIndexScan = new CalciteLogicalIndexScan(getCluster(), getTable(), osIndex);
         pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(logicalIndexScan);
@@ -139,56 +139,27 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
       LOG.error("Failed to reconstruct pushed-down RelNode tree", e);
       throw new RuntimeException("Failed to reconstruct pushed-down RelNode tree", e);
     }
-    
+
     // Pass pushedDownTree to OpenSearchRequest via RequestBuilder
     final RelNode finalPushedDownTree = pushedDownTree;
-    
+
     return new AbstractEnumerable<>() {
       @Override
       public Enumerator<Object> enumerator() {
-        OpenSearchRequestBuilder requestBuilder = getOrCreateRequestBuilder();
+        OpenSearchRequestBuilder requestBuilder = pushDownContext.createRequestBuilder();
         // Set the RelNode tree on the request builder
-        if (finalPushedDownTree != null) {
-          requestBuilder.setPushedDownRelNodeTree(finalPushedDownTree);
-        }
+          if (finalPushedDownTree != null) {
+              requestBuilder.setPushedDownRelNodeTree(finalPushedDownTree);
+          }
         return new OpenSearchIndexEnumerator(
             osIndex.getClient(),
-            getFieldPath(),
+            getRowType().getFieldNames(),
             requestBuilder.getMaxResponseSize(),
             requestBuilder.getMaxResultWindow(),
+            osIndex.getQueryBucketSize(),
             osIndex.buildRequest(requestBuilder),
             osIndex.createOpenSearchResourceMonitor());
       }
     };
-  }
-
-  private List<String> getFieldPath() {
-    return getRowType().getFieldNames().stream()
-        .map(f -> osIndex.getAliasMapping().getOrDefault(f, f))
-        .toList();
-  }
-
-  /**
-   * In some edge cases where the digests of more than one scan are the same, and then the Calcite
-   * planner will reuse the same scan along with the same PushDownContext inner it. However, the
-   * `OpenSearchRequestBuilder` inner `PushDownContext` is not reusable since it has status changed
-   * in the search process.
-   *
-   * <p>To avoid this issue and try to construct `OpenSearchRequestBuilder` as less as possible,
-   * this method will get and reuse the `OpenSearchRequestBuilder` in PushDownContext for the first
-   * time, and then construct new ones for the following invoking.
-   *
-   * @return OpenSearchRequestBuilder to be used by enumerator
-   */
-  private volatile boolean isRequestBuilderUsedByEnumerator = false;
-
-  private OpenSearchRequestBuilder getOrCreateRequestBuilder() {
-    synchronized (this.pushDownContext) {
-      if (isRequestBuilderUsedByEnumerator) {
-        return this.pushDownContext.createRequestBuilder();
-      }
-      isRequestBuilderUsedByEnumerator = true;
-      return this.pushDownContext.getRequestBuilder();
-    }
   }
 }
