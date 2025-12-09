@@ -165,14 +165,21 @@ public class PushDownContext extends AbstractCollection<PushDownOperation> {
       RelNode current = logicalIndexScan;
       List<PushDownOperation> pushDownOperations = new ArrayList<>(this);
 
+      LOGGER.info("Starting reconstruction with {} operations", pushDownOperations.size());
       for (int i = 0; i < pushDownOperations.size(); i++) {
-          RelNode storedRelNode = pushDownOperations.get(i).relNode();
+          PushDownOperation op = pushDownOperations.get(i);
+          LOGGER.info("Operation {}: type={}, digest={}", i, op.type(), op.digest());
+          RelNode storedRelNode = op.relNode();
           if (storedRelNode != null) {
+              LOGGER.info("  Stored RelNode: {}", storedRelNode);
               RelNode before = current;
               current = replaceInput(storedRelNode, current);
-              LOGGER.info("{} being added as input to {}", before, current);
+              LOGGER.info("  {} being added as input to {}", before, current);
+          } else {
+              LOGGER.info("  No RelNode stored for this operation");
           }
       }
+      LOGGER.info("Final reconstructed tree\n: {}", current);
       return current;
   }
   
