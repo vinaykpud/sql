@@ -210,6 +210,29 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId);
   }
 
+    /** Build an OpenSearchQueryRequest without PIT support. */
+    public static OpenSearchQueryRequest ofRelNode(
+            IndexName indexName,
+            SearchSourceBuilder sourceBuilder,
+            OpenSearchExprValueFactory factory,
+            List<String> includes,
+            RelNode pushedDownRelNodeTree) {
+        return new OpenSearchQueryRequest(indexName, sourceBuilder, factory, includes, null, null, pushedDownRelNodeTree);
+    }
+
+    /** Build an OpenSearchQueryRequest with PIT support. */
+    public static OpenSearchQueryRequest pitOfRelNode(
+            IndexName indexName,
+            SearchSourceBuilder sourceBuilder,
+            OpenSearchExprValueFactory factory,
+            List<String> includes,
+            TimeValue cursorKeepAlive,
+            String pitId,
+            RelNode pushedDownRelNodeTree) {
+        return new OpenSearchQueryRequest(
+                indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
+    }
+
   /** Do not new it directly, use of() and pitOf() instead. */
   OpenSearchQueryRequest(
       IndexName indexName,

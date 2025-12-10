@@ -23,7 +23,6 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
-import org.apache.calcite.rel.RelNode;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.lucene.search.join.ScoreMode;
 import org.jetbrains.annotations.TestOnly;
@@ -130,7 +129,7 @@ public class OpenSearchRequestBuilder {
      * 2. If mapping is empty. It means no data in the index. PIT search relies on `_id` fields to do sort, thus it will fail if using PIT search in this case.
      */
     if (sourceBuilder.size() == 0 || isMappingEmpty) {
-      return OpenSearchQueryRequest.of(indexName, sourceBuilder, exprValueFactory, List.of(), pushedDownRelNodeTree);
+      return OpenSearchQueryRequest.ofRelNode(indexName, sourceBuilder, exprValueFactory, List.of(), pushedDownRelNodeTree);
     }
     return buildRequestWithPit(indexName, cursorKeepAlive, client);
   }
@@ -146,13 +145,13 @@ public class OpenSearchRequestBuilder {
         sourceBuilder.size(maxResultWindow - startFrom);
         // Search with PIT request
         String pitId = createPit(indexName, cursorKeepAlive, client);
-        return OpenSearchQueryRequest.pitOf(
+        return OpenSearchQueryRequest.pitOfRelNode(
             indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
       } else {
         sourceBuilder.from(startFrom);
         sourceBuilder.size(size);
         // Search with non-Pit request
-        return OpenSearchQueryRequest.of(indexName, sourceBuilder, exprValueFactory, includes, pushedDownRelNodeTree);
+        return OpenSearchQueryRequest.ofRelNode(indexName, sourceBuilder, exprValueFactory, includes, pushedDownRelNodeTree);
       }
     } else {
       if (startFrom != 0) {
@@ -161,7 +160,7 @@ public class OpenSearchRequestBuilder {
       sourceBuilder.size(pageSize);
       // Search with PIT request
       String pitId = createPit(indexName, cursorKeepAlive, client);
-      return OpenSearchQueryRequest.pitOf(
+      return OpenSearchQueryRequest.pitOfRelNode(
           indexName, sourceBuilder, exprValueFactory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree);
     }
   }
