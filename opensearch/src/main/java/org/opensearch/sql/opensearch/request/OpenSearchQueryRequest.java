@@ -417,6 +417,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   }
 
     public static byte[] convertToSubstraitAndSerialize(RelNode relNode) {
+        relNode = null; // Setting the relNode as Null so that it always uses full relNode from the ThreadLocal
         if (relNode == null) {
             LOGGER.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
             relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
