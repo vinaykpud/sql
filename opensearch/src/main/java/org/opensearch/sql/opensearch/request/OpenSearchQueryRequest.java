@@ -273,7 +273,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     exprValueFactory =
         new OpenSearchExprValueFactory(
             index.getFieldOpenSearchTypes(), index.isFieldTypeTolerance());
-    
+
     // RelNode tree is not serialized/deserialized for now
     // It is only used during the initial query execution
     this.pushedDownRelNodeTree = null;
@@ -418,14 +418,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   }
 
     public static byte[] convertToSubstraitAndSerialize(RelNode relNode) {
-        relNode = null; // Setting the relNode as Null so that it always uses full relNode from the ThreadLocal
-        if (relNode == null) {
-            LOGGER.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
-            relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-        } else {
-            LOGGER.info("RelNode provided directly from pushedDownRelNodeTree");
-        }
-        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOGGER.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan
