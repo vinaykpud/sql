@@ -164,8 +164,7 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         case DOUBLE:
           return TYPE_FACTORY.createSqlType(SqlTypeName.DOUBLE, nullable);
         case IP:
-            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
-//          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
         case STRING:
           return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
         case BOOLEAN:
@@ -211,8 +210,7 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("text")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("ip")) {
-          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
-//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
+        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_IP, nullable);
       } else if (fieldType.getOriginalPath().isPresent()) {
         return convertExprTypeToRelDataType(fieldType.getOriginalExprType(), nullable);
       } else {
