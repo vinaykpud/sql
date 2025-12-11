@@ -474,13 +474,6 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   }
 
     public static byte[] convertToSubstraitAndSerialize(RelNode relNode) {
-        if (relNode == null) {
-            LOG.info("RelNode is null, retrieving from ThreadLocal (CalciteToolsHelper.OpenSearchRelRunners)");
-            relNode = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
-        } else {
-            LOG.info("RelNode provided directly from pushedDownRelNodeTree");
-        }
-        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
         LOG.info("Calcite Logical Plan before Conversion\n {}", RelOptUtil.toString(relNode));
 
         // Preprocess the Calcite plan

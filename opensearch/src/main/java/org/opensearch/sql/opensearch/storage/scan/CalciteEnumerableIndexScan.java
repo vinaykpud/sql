@@ -124,9 +124,12 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
   public Enumerable<@Nullable Object> scan() {
     // Reconstruct pushed-down RelNode tree
     RelNode pushedDownTree = null;
+    RelNode fullRelNodeTree = null;
     try {
       if (pushDownContext != null && !pushDownContext.isEmpty()) {
-        LOG.info("Full RelNode tree:\n{}", RelOptUtil.toString(CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode()));
+        fullRelNodeTree = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
+        CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
+        LOG.info("Full RelNode tree:\n{}", RelOptUtil.toString(fullRelNodeTree));
         LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
         int index = 0;
         for (var operation : pushDownContext) {
@@ -148,6 +151,8 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
 
     // Pass pushedDownTree to OpenSearchRequest via RequestBuilder
     final RelNode finalPushedDownTree = pushedDownTree;
+    // If needed for testing use finalFullRelNodeTree
+    final RelNode finalFullRelNodeTree = fullRelNodeTree;
 
     return new AbstractEnumerable<>() {
       @Override
