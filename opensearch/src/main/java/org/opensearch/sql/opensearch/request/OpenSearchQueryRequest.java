@@ -70,6 +70,7 @@ import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
 import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
+import org.opensearch.sql.calcite.type.ExprIPType;
 import org.opensearch.sql.calcite.type.ExprSqlType;
 import org.opensearch.sql.calcite.utils.CalciteToolsHelper;
 import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
@@ -500,6 +501,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                             TypeCreator creator = Type.withNullability(relDataType.isNullable());
                             return creator.precisionTimestamp(3);
                         }
+                        if(isIpUDT(relDataType)) {
+                            return TypeCreator.NULLABLE.BINARY;
+                        }
                         return null;
                     }
 
@@ -759,6 +763,15 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         }
         return false;
     }
+
+    private static boolean isIpUDT(RelDataType relDataType) {
+        if (relDataType.getClass().equals(ExprIPType.class)) {
+            ExprIPType exprIPType = (ExprIPType) relDataType;
+            return exprIPType.getUdt().equals(OpenSearchTypeFactory.ExprUDT.EXPR_IP);
+        }
+        return false;
+    }
+
 
     private static boolean isSpanFunction(RexCall rexCall) {
         return rexCall.getKind() == SqlKind.OTHER_FUNCTION
