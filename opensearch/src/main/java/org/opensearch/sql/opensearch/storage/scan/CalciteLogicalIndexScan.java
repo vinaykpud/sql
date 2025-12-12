@@ -139,7 +139,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
     } else {
       planner.addRule(OpenSearchIndexRules.RELEVANCE_FUNCTION_PUSHDOWN);
     }
-    
+
     // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
     // This is needed for Substrait compatibility which doesn't support SEARCH operations
     planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
@@ -158,10 +158,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
               filter.getCondition(), schema, fieldTypes, rowType, getCluster());
       // TODO: handle the case where condition contains a score function
       CalciteLogicalIndexScan newScan = this.copy();
-      
+
       // Log the filter condition being stored to check if SEARCH optimization already happened
       LOG.info("Filter condition being stored: {}", filter.getCondition());
-      
+
       newScan.pushDownContext.add(
           queryExpression.getScriptCount() > 0 ? PushDownType.SCRIPT : PushDownType.FILTER,
           new FilterDigest(
@@ -442,7 +442,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
             updated
                 ? aggAction -> aggAction.pushDownLimitIntoBucketSize(limit + offset)
                 : aggAction -> {};
-        newScan.pushDownContext.add(PushDownType.LIMIT, new LimitDigest(limit, offset), action);
+        newScan.pushDownContext.add(PushDownType.LIMIT, new LimitDigest(limit, offset), action, sort);
         return offset > 0 ? sort.copy(sort.getTraitSet(), List.of(newScan)) : newScan;
       } else {
         CalciteLogicalIndexScan newScan = this.copyWithNewSchema(getRowType());
