@@ -335,7 +335,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
                   aggAction.rePushDownSortAggMeasure(
                       sort.getCollation().getFieldCollations(), rowType.getFieldNames());
       Object digest = sort.getCollation().getFieldCollations();
-      newScan.pushDownContext.add(PushDownType.SORT_AGG_METRICS, digest, newAction, sort);
+      newScan.pushDownContext.add(PushDownType.SORT_AGG_METRICS, digest, newAction);
       return newScan;
     } catch (Exception e) {
       if (LOG.isDebugEnabled()) {
