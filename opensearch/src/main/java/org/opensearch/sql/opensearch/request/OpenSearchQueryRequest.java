@@ -78,6 +78,7 @@ import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.PPLBuiltinOperators;
 import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
+import org.opensearch.sql.opensearch.client.OpenSearchClient;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
@@ -139,6 +140,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
   /** List of includes expected in the response. */
   @EqualsAndHashCode.Exclude @ToString.Exclude private final List<String> includes;
 
+  /** OpenSearch client. */
+  @EqualsAndHashCode.Exclude @ToString.Exclude
+  private final OpenSearchClient client;
+
   @EqualsAndHashCode.Exclude private boolean needClean = true;
 
   /** Indicate the search already done. */
@@ -159,6 +164,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     private static final Logger LOGGER =
             LogManager.getLogger(OpenSearchQueryRequest.class);
 
+  private final boolean indexOptimized;
+
   /** Constructor of OpenSearchQueryRequest. */
   public OpenSearchQueryRequest(
       String indexName, int size, OpenSearchExprValueFactory factory, List<String> includes) {
@@ -176,6 +183,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     this.exprValueFactory = factory;
     this.includes = includes;
     this.pushedDownRelNodeTree = null;
+    this.client = null;
+    this.indexOptimized = false;
   }
 
   /** Constructor of OpenSearchQueryRequest. */
@@ -184,7 +193,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       SearchSourceBuilder sourceBuilder,
       OpenSearchExprValueFactory factory,
       List<String> includes) {
-    this(indexName, sourceBuilder, factory, includes, (RelNode) null);
+    this(indexName, sourceBuilder, factory, includes, (RelNode) null, false);
   }
 
   /** Constructor of OpenSearchQueryRequest with RelNode tree support. */
@@ -194,11 +203,24 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       OpenSearchExprValueFactory factory,
       List<String> includes,
       RelNode pushedDownRelNodeTree) {
+    this(indexName, sourceBuilder, factory, includes, pushedDownRelNodeTree, false);
+  }
+
+  /** Constructor of OpenSearchQueryRequest with RelNode tree and index optimization support. */
+  public OpenSearchQueryRequest(
+      IndexName indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes,
+      RelNode pushedDownRelNodeTree,
+      boolean indexOptimized) {
     this.indexName = indexName;
     this.sourceBuilder = sourceBuilder;
     this.exprValueFactory = factory;
     this.includes = includes;
     this.pushedDownRelNodeTree = pushedDownRelNodeTree;
+    this.client = null;
+    this.indexOptimized = indexOptimized;
   }
 
   /** Constructor of OpenSearchQueryRequest with PIT support. */
@@ -209,7 +231,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       List<String> includes,
       TimeValue cursorKeepAlive,
       String pitId) {
-    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null);
+    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, null, false);
   }
 
   /** Constructor of OpenSearchQueryRequest with PIT and RelNode tree support. */
@@ -221,6 +243,19 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
       TimeValue cursorKeepAlive,
       String pitId,
       RelNode pushedDownRelNodeTree) {
+    this(indexName, sourceBuilder, factory, includes, cursorKeepAlive, pitId, pushedDownRelNodeTree, false);
+  }
+
+  /** Constructor of OpenSearchQueryRequest with PIT, RelNode tree and index optimization support. */
+  public OpenSearchQueryRequest(
+      IndexName indexName,
+      SearchSourceBuilder sourceBuilder,
+      OpenSearchExprValueFactory factory,
+      List<String> includes,
+      TimeValue cursorKeepAlive,
+      String pitId,
+      RelNode pushedDownRelNodeTree,
+      boolean indexOptimized) {
     this.indexName = indexName;
     this.sourceBuilder = sourceBuilder;
     this.exprValueFactory = factory;
@@ -228,6 +263,8 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     this.cursorKeepAlive = cursorKeepAlive;
     this.pitId = pitId;
     this.pushedDownRelNodeTree = pushedDownRelNodeTree;
+    this.client = null;
+    this.indexOptimized = indexOptimized;
   }
 
   /** true if the request is a count aggregation request. */
@@ -274,6 +311,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         new OpenSearchExprValueFactory(
             index.getFieldOpenSearchTypes(), index.isFieldTypeTolerance());
 
+    client = index.getClient();
+    this.indexOptimized = client.isIndexOptimized(indexName.toString());
+    
     // RelNode tree is not serialized/deserialized for now
     // It is only used during the initial query execution
     this.pushedDownRelNodeTree = null;
@@ -292,8 +332,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // get the value before set searchDone = true
         boolean isCountAggRequest = isCountAggRequest();
         searchDone = true;
-        // Convert pushed-down RelNode tree to Substrait bytes
-        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
+        if (indexOptimized) {
+          sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
+        }
         return new OpenSearchResponse(
             searchAction.apply(
                 new SearchRequest().indices(indexName.getIndexNames()).source(sourceBuilder)),
@@ -315,8 +356,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
               SearchHits.empty(), exprValueFactory, includes, isCountAggRequest());
     } else {
       this.sourceBuilder.pointInTimeBuilder(new PointInTimeBuilder(this.pitId));
-      // Convert pushed-down RelNode tree to Substrait bytes
-      sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
+      if (indexOptimized) {
+        sourceBuilder.queryPlanIR(convertToSubstraitAndSerialize(pushedDownRelNodeTree));
+      }
       this.sourceBuilder.timeout(cursorKeepAlive);
       // check for search after
       if (searchAfter != null) {

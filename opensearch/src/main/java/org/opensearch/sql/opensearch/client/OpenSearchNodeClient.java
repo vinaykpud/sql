@@ -135,6 +135,18 @@ public class OpenSearchNodeClient implements OpenSearchClient {
     }
   }
 
+  @Override
+  public boolean isIndexOptimized(String indexName) {
+    try {
+      GetSettingsResponse settingsResponse =
+          client.admin().indices().prepareGetSettings(indexName).setLocal(true).get();
+      Settings settings = settingsResponse.getIndexToSettings().get(indexName);
+      return settings != null && settings.getAsBoolean("index.optimized.enabled", false);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   /** TODO: Scroll doesn't work for aggregation. Support aggregation later. */
   @Override
   public OpenSearchResponse search(OpenSearchRequest request) {

@@ -55,6 +55,14 @@ public interface OpenSearchClient {
   Map<String, Integer> getIndexMaxResultWindows(String... indexExpression);
 
   /**
+   * Check if index is optimized.
+   *
+   * @param indexName index name
+   * @return true if index is optimized, false otherwise
+   */
+  boolean isIndexOptimized(String indexName);
+
+  /**
    * Perform search query in the search request.
    *
    * @param request search request
