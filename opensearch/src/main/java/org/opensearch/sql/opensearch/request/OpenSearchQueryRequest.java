@@ -873,7 +873,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                     public RelNode visit(LogicalAggregate aggregate) {
                         boolean hasCount =
                                 aggregate.getAggCallList().stream()
-                                        .anyMatch(call -> call.getAggregation().getKind() == SqlKind.COUNT);
+                                        .anyMatch(call -> call.getAggregation().getKind() == SqlKind.COUNT && call.isDistinct() == false);
 
                         if (hasCount) {
                             return super.visit(aggregate);
