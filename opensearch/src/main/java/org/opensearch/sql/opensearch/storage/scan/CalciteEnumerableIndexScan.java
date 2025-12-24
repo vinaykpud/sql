@@ -124,11 +124,11 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
         // FIXME : Make this optional based on the index setting
         fullRelNodeTree = CalciteToolsHelper.OpenSearchRelRunners.getCurrentRelNode();
         CalciteToolsHelper.OpenSearchRelRunners.clearCurrentRelNode();
-        LOG.info("Full RelNode tree:\n{}", RelOptUtil.toString(fullRelNodeTree));
-        LOG.info("=== PushDownContext contains {} operations ===", pushDownContext.size());
+        LOG.debug("Full RelNode tree:\n{}", RelOptUtil.toString(fullRelNodeTree));
+        LOG.debug("=== PushDownContext contains {} operations ===", pushDownContext.size());
         int index = 0;
         for (var operation : pushDownContext) {
-          LOG.info("  Operation {}: type={}, relNode={}",
+          LOG.debug("  Operation {}: type={}, relNode={}",
               index++,
               operation.type(),
               operation.relNode() != null ? operation.relNode().toString() : "NULL");
@@ -137,7 +137,7 @@ public class CalciteEnumerableIndexScan extends AbstractCalciteIndexScan
         // Create a base CalciteLogicalIndexScan for reconstruction
         CalciteLogicalIndexScan logicalIndexScan = new CalciteLogicalIndexScan(getCluster(), getTable(), osIndex);
         pushedDownTree = pushDownContext.reconstructPushedDownRelNodeTree(logicalIndexScan);
-        LOG.info("Reconstructed pushed-down RelNode tree:\n{}", pushedDownTree.explain());
+        LOG.debug("Reconstructed pushed-down RelNode tree:\n{}", pushedDownTree.explain());
       }
     } catch (Exception e) {
       LOG.error("Failed to reconstruct pushed-down RelNode tree", e);

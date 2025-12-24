@@ -160,7 +160,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       CalciteLogicalIndexScan newScan = this.copy();
 
       // Log the filter condition being stored to check if SEARCH optimization already happened
-      LOG.info("Filter condition being stored: {}", filter.getCondition());
+      LOG.debug("Filter condition being stored: {}", filter.getCondition());
 
       newScan.pushDownContext.add(
           queryExpression.getScriptCount() > 0 ? PushDownType.SCRIPT : PushDownType.FILTER,
@@ -409,7 +409,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       // Store the input Project node BEFORE the Aggregate
       // This Project comes between the Aggregate and the Filter in the pattern: Agg → Project → Filter
       if (project != null) {
-          LOG.info("Project to add: {}", project);
+          LOG.debug("Project to add: {}", project);
           // Create a no-op OSRequestBuilderAction (not AggregationBuilderAction!)
           // This ensures the Project is added to operationsForRequestBuilder, not operationsForAgg
           // no-op since we don't need to modify the OpenSearch query, we only need RelNode for Substrait conversion
@@ -421,7 +421,7 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       newScan.pushDownContext.add(PushDownType.AGGREGATION, aggregate, action, aggregate);
       return newScan;
     } catch (Exception e) {
-        LOG.info("Cannot pushdown the aggregate {}", aggregate, e);
+        LOG.debug("Cannot pushdown the aggregate {}", aggregate, e);
     }
     return null;
   }
