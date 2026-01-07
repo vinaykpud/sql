@@ -1,0 +1,36 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "Title",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      1,
+      "Google Homepage"
+    ],
+    [
+      1,
+      "Google Search Page"
+    ],
+    [
+      1,
+      "Page with Google Reference"
+    ],
+    [
+      1,
+      "Search Results"
+    ],
+    [
+      1,
+      "Welcome to Google"
+    ]
+  ],
+  "total": 5,
+  "size": 5
+}

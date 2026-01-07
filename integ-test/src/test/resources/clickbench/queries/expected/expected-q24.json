@@ -1,0 +1,1070 @@
+{
+  "schema": [
+    {
+      "name": "EventDate",
+      "type": "timestamp"
+    },
+    {
+      "name": "URLRegionID",
+      "type": "int"
+    },
+    {
+      "name": "HasGCLID",
+      "type": "smallint"
+    },
+    {
+      "name": "Income",
+      "type": "smallint"
+    },
+    {
+      "name": "Interests",
+      "type": "smallint"
+    },
+    {
+      "name": "Robotness",
+      "type": "smallint"
+    },
+    {
+      "name": "BrowserLanguage",
+      "type": "string"
+    },
+    {
+      "name": "CounterClass",
+      "type": "smallint"
+    },
+    {
+      "name": "BrowserCountry",
+      "type": "string"
+    },
+    {
+      "name": "OriginalURL",
+      "type": "string"
+    },
+    {
+      "name": "ClientTimeZone",
+      "type": "smallint"
+    },
+    {
+      "name": "RefererHash",
+      "type": "bigint"
+    },
+    {
+      "name": "TraficSourceID",
+      "type": "smallint"
+    },
+    {
+      "name": "HitColor",
+      "type": "string"
+    },
+    {
+      "name": "RefererRegionID",
+      "type": "int"
+    },
+    {
+      "name": "URLCategoryID",
+      "type": "smallint"
+    },
+    {
+      "name": "LocalEventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "EventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "UTMTerm",
+      "type": "string"
+    },
+    {
+      "name": "AdvEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "UserAgentMinor",
+      "type": "string"
+    },
+    {
+      "name": "UserAgentMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "RemoteIP",
+      "type": "int"
+    },
+    {
+      "name": "Sex",
+      "type": "smallint"
+    },
+    {
+      "name": "JavaEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "URLHash",
+      "type": "bigint"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    },
+    {
+      "name": "ParamOrderID",
+      "type": "string"
+    },
+    {
+      "name": "OpenstatSourceID",
+      "type": "string"
+    },
+    {
+      "name": "HTTPError",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion3",
+      "type": "int"
+    },
+    {
+      "name": "MobilePhoneModel",
+      "type": "string"
+    },
+    {
+      "name": "SilverlightVersion4",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion1",
+      "type": "smallint"
+    },
+    {
+      "name": "SilverlightVersion2",
+      "type": "smallint"
+    },
+    {
+      "name": "IsDownload",
+      "type": "smallint"
+    },
+    {
+      "name": "IsParameter",
+      "type": "smallint"
+    },
+    {
+      "name": "CLID",
+      "type": "int"
+    },
+    {
+      "name": "FlashMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "FlashMinor",
+      "type": "smallint"
+    },
+    {
+      "name": "UTMMedium",
+      "type": "string"
+    },
+    {
+      "name": "WatchID",
+      "type": "bigint"
+    },
+    {
+      "name": "DontCountHits",
+      "type": "smallint"
+    },
+    {
+      "name": "CookieEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "HID",
+      "type": "int"
+    },
+    {
+      "name": "SocialAction",
+      "type": "string"
+    },
+    {
+      "name": "WindowName",
+      "type": "int"
+    },
+    {
+      "name": "ConnectTiming",
+      "type": "int"
+    },
+    {
+      "name": "PageCharset",
+      "type": "string"
+    },
+    {
+      "name": "IsLink",
+      "type": "smallint"
+    },
+    {
+      "name": "IsArtifical",
+      "type": "smallint"
+    },
+    {
+      "name": "JavascriptEnable",
+      "type": "smallint"
+    },
+    {
+      "name": "ClientEventTime",
+      "type": "timestamp"
+    },
+    {
+      "name": "DNSTiming",
+      "type": "int"
+    },
+    {
+      "name": "CodeVersion",
+      "type": "int"
+    },
+    {
+      "name": "ResponseEndTiming",
+      "type": "int"
+    },
+    {
+      "name": "FUniqID",
+      "type": "bigint"
+    },
+    {
+      "name": "WindowClientHeight",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenstatServiceName",
+      "type": "string"
+    },
+    {
+      "name": "UTMContent",
+      "type": "string"
+    },
+    {
+      "name": "HistoryLength",
+      "type": "smallint"
+    },
+    {
+      "name": "IsOldCounter",
+      "type": "smallint"
+    },
+    {
+      "name": "MobilePhone",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchPhrase",
+      "type": "string"
+    },
+    {
+      "name": "FlashMinor2",
+      "type": "smallint"
+    },
+    {
+      "name": "SearchEngineID",
+      "type": "smallint"
+    },
+    {
+      "name": "IsEvent",
+      "type": "smallint"
+    },
+    {
+      "name": "UTMSource",
+      "type": "string"
+    },
+    {
+      "name": "RegionID",
+      "type": "int"
+    },
+    {
+      "name": "OpenstatAdID",
+      "type": "string"
+    },
+    {
+      "name": "UTMCampaign",
+      "type": "string"
+    },
+    {
+      "name": "GoodEvent",
+      "type": "smallint"
+    },
+    {
+      "name": "IsRefresh",
+      "type": "smallint"
+    },
+    {
+      "name": "ParamCurrency",
+      "type": "string"
+    },
+    {
+      "name": "Params",
+      "type": "string"
+    },
+    {
+      "name": "ResolutionHeight",
+      "type": "smallint"
+    },
+    {
+      "name": "ClientIP",
+      "type": "int"
+    },
+    {
+      "name": "FromTag",
+      "type": "string"
+    },
+    {
+      "name": "ParamCurrencyID",
+      "type": "smallint"
+    },
+    {
+      "name": "ResponseStartTiming",
+      "type": "int"
+    },
+    {
+      "name": "ResolutionWidth",
+      "type": "smallint"
+    },
+    {
+      "name": "SendTiming",
+      "type": "int"
+    },
+    {
+      "name": "RefererCategoryID",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenstatCampaignID",
+      "type": "string"
+    },
+    {
+      "name": "UserID",
+      "type": "bigint"
+    },
+    {
+      "name": "WithHash",
+      "type": "smallint"
+    },
+    {
+      "name": "UserAgent",
+      "type": "smallint"
+    },
+    {
+      "name": "ParamPrice",
+      "type": "bigint"
+    },
+    {
+      "name": "ResolutionDepth",
+      "type": "smallint"
+    },
+    {
+      "name": "IsMobile",
+      "type": "smallint"
+    },
+    {
+      "name": "Age",
+      "type": "smallint"
+    },
+    {
+      "name": "SocialSourceNetworkID",
+      "type": "smallint"
+    },
+    {
+      "name": "OpenerName",
+      "type": "int"
+    },
+    {
+      "name": "OS",
+      "type": "smallint"
+    },
+    {
+      "name": "IsNotBounce",
+      "type": "smallint"
+    },
+    {
+      "name": "Referer",
+      "type": "string"
+    },
+    {
+      "name": "NetMinor",
+      "type": "smallint"
+    },
+    {
+      "name": "Title",
+      "type": "string"
+    },
+    {
+      "name": "NetMajor",
+      "type": "smallint"
+    },
+    {
+      "name": "IPNetworkID",
+      "type": "int"
+    },
+    {
+      "name": "FetchTiming",
+      "type": "int"
+    },
+    {
+      "name": "SocialNetwork",
+      "type": "string"
+    },
+    {
+      "name": "SocialSourcePage",
+      "type": "string"
+    },
+    {
+      "name": "CounterID",
+      "type": "int"
+    },
+    {
+      "name": "WindowClientWidth",
+      "type": "smallint"
+    }
+  ],
+  "datarows": [
+    [
+      "2013-07-02 00:00:00",
+      203,
+      0,
+      5,
+      400,
+      0,
+      "fr",
+      1,
+      "FR",
+      "",
+      0,
+      1000000000000000004,
+      -1,
+      "5",
+      103,
+      23,
+      "2013-07-02 16:45:00",
+      "2013-07-02 16:45:00",
+      "",
+      2,
+      "0",
+      53,
+      1234567893,
+      2,
+      1,
+      2868770270353813622,
+      "https://www.google.example.com/test",
+      "",
+      "",
+      1,
+      0,
+      "",
+      0,
+      0,
+      0,
+      0,
+      0,
+      1003,
+      11,
+      2,
+      "",
+      1000000000000000004,
+      0,
+      1,
+      100004,
+      "",
+      103,
+      115,
+      "utf-8",
+      0,
+      1,
+      0,
+      "2013-07-02 16:45:00",
+      65,
+      3,
+      315,
+      10000004,
+      768,
+      "",
+      "",
+      20,
+      0,
+      0,
+      "test",
+      0,
+      3,
+      0,
+      "",
+      103,
+      "",
+      "",
+      0,
+      0,
+      "EUR",
+      "",
+      768,
+      1234567893,
+      "",
+      5,
+      215,
+      1024,
+      130,
+      13,
+      "",
+      1000000000000000004,
+      0,
+      53,
+      25,
+      24,
+      0,
+      40,
+      0,
+      203,
+      4,
+      1,
+      "",
+      1,
+      "Google Homepage",
+      4,
+      1000003,
+      415,
+      "",
+      "",
+      62,
+      1024
+    ],
+    [
+      "2013-07-01 00:00:00",
+      203,
+      0,
+      5,
+      400,
+      0,
+      "fr",
+      1,
+      "FR",
+      "",
+      0,
+      1000000000000000004,
+      -1,
+      "5",
+      103,
+      23,
+      "2013-07-02 16:45:00",
+      "2013-07-02 16:45:00",
+      "",
+      2,
+      "0",
+      53,
+      1234567893,
+      2,
+      1,
+      2868770270353813622,
+      "https://www.google.example.com/test",
+      "",
+      "",
+      1,
+      0,
+      "",
+      0,
+      0,
+      0,
+      0,
+      0,
+      1003,
+      11,
+      2,
+      "",
+      1000000000000000004,
+      0,
+      1,
+      100004,
+      "",
+      103,
+      115,
+      "utf-8",
+      0,
+      1,
+      0,
+      "2013-07-02 16:45:00",
+      65,
+      3,
+      315,
+      10000004,
+      768,
+      "",
+      "",
+      20,
+      0,
+      0,
+      "test",
+      0,
+      3,
+      0,
+      "",
+      103,
+      "",
+      "",
+      0,
+      1,
+      "EUR",
+      "",
+      768,
+      1234567893,
+      "",
+      5,
+      215,
+      1024,
+      130,
+      13,
+      "",
+      1000000000000000004,
+      0,
+      53,
+      25,
+      24,
+      0,
+      40,
+      0,
+      203,
+      4,
+      1,
+      "",
+      1,
+      "Google Homepage",
+      4,
+      1000003,
+      415,
+      "",
+      "",
+      62,
+      1024
+    ],
+    [
+      "2013-07-05 00:00:00",
+      204,
+      0,
+      3,
+      500,
+      1,
+      "de",
+      0,
+      "DE",
+      "",
+      8,
+      3594120000172545465,
+      6,
+      "1",
+      104,
+      24,
+      "2013-07-05 11:30:00",
+      "2013-07-05 11:30:00",
+      "",
+      0,
+      "0",
+      54,
+      1234567894,
+      1,
+      1,
+      1000000000000000005,
+      "https://example.google.org/page",
+      "ORDER002",
+      "",
+      0,
+      0,
+      "Samsung",
+      0,
+      0,
+      0,
+      1,
+      1,
+      1004,
+      10,
+      1,
+      "",
+      1000000000000000005,
+      0,
+      1,
+      100005,
+      "",
+      104,
+      120,
+      "utf-8",
+      1,
+      0,
+      1,
+      "2013-07-05 11:30:00",
+      70,
+      4,
+      320,
+      10000005,
+      1200,
+      "",
+      "",
+      8,
+      1,
+      0,
+      "find something",
+      0,
+      1,
+      1,
+      "",
+      104,
+      "",
+      "",
+      1,
+      0,
+      "EUR",
+      "",
+      1200,
+      1234567894,
+      "",
+      5,
+      220,
+      1920,
+      140,
+      14,
+      "",
+      1000000000000000005,
+      1,
+      54,
+      100,
+      32,
+      1,
+      28,
+      0,
+      204,
+      5,
+      1,
+      "https://google.com",
+      7,
+      "Page with Google Reference",
+      3,
+      1000004,
+      420,
+      "",
+      "",
+      62,
+      1920
+    ],
+    [
+      "2013-07-10 00:00:00",
+      202,
+      1,
+      4,
+      300,
+      1,
+      "en",
+      0,
+      "US",
+      "",
+      5,
+      1000000000000000003,
+      6,
+      "0",
+      102,
+      22,
+      "2013-07-10 09:15:00",
+      "2013-07-10 09:15:00",
+      "",
+      1,
+      "0",
+      52,
+      1234567892,
+      1,
+      0,
+      2868770270353813622,
+      "https://example.com/page?ref=google",
+      "ORDER001",
+      "",
+      0,
+      0,
+      "iPhone",
+      0,
+      0,
+      0,
+      0,
+      1,
+      1002,
+      9,
+      3,
+      "organic",
+      1000000000000000003,
+      0,
+      0,
+      100003,
+      "",
+      102,
+      110,
+      "utf-8",
+      1,
+      0,
+      1,
+      "2013-07-10 09:15:00",
+      60,
+      2,
+      310,
+      10000003,
+      1024,
+      "",
+      "",
+      15,
+      1,
+      1,
+      "google search",
+      0,
+      1,
+      1,
+      "google",
+      102,
+      "",
+      "",
+      1,
+      0,
+      "USD",
+      "",
+      1024,
+      1234567892,
+      "",
+      1,
+      210,
+      1280,
+      120,
+      12,
+      "",
+      1000000000000000003,
+      1,
+      52,
+      10,
+      32,
+      1,
+      35,
+      0,
+      202,
+      3,
+      0,
+      "https://www.google.com",
+      8,
+      "Welcome to Google",
+      2,
+      1000002,
+      410,
+      "",
+      "",
+      62,
+      1280
+    ],
+    [
+      "2013-07-14 00:00:00",
+      201,
+      0,
+      2,
+      200,
+      0,
+      "en",
+      1,
+      "UK",
+      "",
+      -5,
+      3594120000172545465,
+      -1,
+      "2",
+      101,
+      21,
+      "2013-07-14 14:20:00",
+      "2013-07-14 14:20:00",
+      "",
+      0,
+      "0",
+      51,
+      1234567891,
+      2,
+      1,
+      1000000000000000002,
+      "https://google.com/maps",
+      "",
+      "",
+      0,
+      0,
+      "",
+      0,
+      0,
+      0,
+      0,
+      0,
+      1001,
+      10,
+      4,
+      "",
+      1000000000000000002,
+      0,
+      1,
+      100002,
+      "",
+      101,
+      105,
+      "utf-8",
+      0,
+      0,
+      1,
+      "2013-07-14 14:20:00",
+      55,
+      1,
+      305,
+      10000002,
+      768,
+      "",
+      "",
+      5,
+      0,
+      0,
+      "search something",
+      0,
+      2,
+      0,
+      "",
+      101,
+      "",
+      "",
+      1,
+      0,
+      "GBP",
+      "",
+      768,
+      1234567891,
+      "",
+      3,
+      205,
+      1366,
+      110,
+      11,
+      "",
+      1000000000000000002,
+      0,
+      51,
+      0,
+      24,
+      0,
+      25,
+      0,
+      201,
+      2,
+      1,
+      "https://example.com",
+      9,
+      "Google Search Page",
+      3,
+      1000001,
+      405,
+      "",
+      "",
+      62,
+      1366
+    ],
+    [
+      "2013-07-15 00:00:00",
+      200,
+      0,
+      3,
+      100,
+      0,
+      "en",
+      1,
+      "US",
+      "",
+      0,
+      3594120000172545465,
+      6,
+      "1",
+      100,
+      20,
+      "2013-07-15 10:30:00",
+      "2013-07-15 10:30:00",
+      "",
+      0,
+      "0",
+      50,
+      1234567890,
+      1,
+      1,
+      1000000000000000001,
+      "https://www.google.com/search?q=test",
+      "",
+      "",
+      0,
+      0,
+      "",
+      0,
+      0,
+      0,
+      0,
+      0,
+      1000,
+      11,
+      5,
+      "",
+      1000000000000000001,
+      0,
+      1,
+      100001,
+      "",
+      100,
+      100,
+      "utf-8",
+      1,
+      0,
+      1,
+      "2013-07-15 10:30:00",
+      50,
+      1,
+      300,
+      10000001,
+      1080,
+      "",
+      "",
+      10,
+      0,
+      0,
+      "test query google",
+      0,
+      1,
+      1,
+      "",
+      100,
+      "",
+      "",
+      1,
+      0,
+      "USD",
+      "",
+      1080,
+      1234567890,
+      "",
+      1,
+      200,
+      1920,
+      100,
+      10,
+      "",
+      1000000000000000001,
+      0,
+      50,
+      0,
+      24,
+      0,
+      30,
+      0,
+      200,
+      1,
+      1,
+      "https://example.com",
+      0,
+      "Search Results",
+      4,
+      1000000,
+      400,
+      "",
+      "",
+      62,
+      1920
+    ]
+  ],
+  "total": 6,
+  "size": 6
+}

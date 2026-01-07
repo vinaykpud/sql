@@ -22,6 +22,7 @@ TABLE:                              'TABLE';  // Alias for FIELDS command
 RENAME:                             'RENAME';
 STATS:                              'STATS';
 EVENTSTATS:                         'EVENTSTATS';
+STREAMSTATS:                        'STREAMSTATS';
 DEDUP:                              'DEDUP';
 SORT:                               'SORT';
 EVAL:                               'EVAL';
@@ -85,6 +86,7 @@ DESC:                               'DESC';
 DATASOURCES:                        'DATASOURCES';
 USING:                              'USING';
 WITH:                               'WITH';
+VALUE:                              'VALUE';
 SIMPLE:                             'SIMPLE';
 STANDARD:                           'STANDARD';
 COST:                               'COST';
@@ -109,7 +111,13 @@ DEDUP_SPLITVALUES:                  'DEDUP_SPLITVALUES';
 PARTITIONS:                         'PARTITIONS';
 ALLNUM:                             'ALLNUM';
 DELIM:                              'DELIM';
+CURRENT:                            'CURRENT';
+WINDOW:                             'WINDOW';
+GLOBAL:                             'GLOBAL';
+RESET_BEFORE:                       'RESET_BEFORE';
+RESET_AFTER:                        'RESET_AFTER';
 BUCKET_NULLABLE:                    'BUCKET_NULLABLE';
+USENULL:                            'USENULL';
 CENTROIDS:                          'CENTROIDS';
 ITERATIONS:                         'ITERATIONS';
 DISTANCE_TYPE:                      'DISTANCE_TYPE';
@@ -125,6 +133,7 @@ TIME_ZONE:                          'TIME_ZONE';
 TRAINING_DATA_SIZE:                 'TRAINING_DATA_SIZE';
 ANOMALY_SCORE_THRESHOLD:            'ANOMALY_SCORE_THRESHOLD';
 APPEND:                             'APPEND';
+MULTISEARCH:                        'MULTISEARCH';
 COUNTFIELD:                         'COUNTFIELD';
 SHOWCOUNT:                          'SHOWCOUNT';
 LIMIT:                              'LIMIT';
@@ -167,8 +176,8 @@ HOUR_MINUTE:                        'HOUR_MINUTE';
 HOUR_OF_DAY:                        'HOUR_OF_DAY';
 HOUR_SECOND:                        'HOUR_SECOND';
 INTERVAL:                           'INTERVAL';
-MICROSECOND:                        'MICROSECOND';
 MILLISECOND:                        'MILLISECOND';
+MICROSECOND:                        'MICROSECOND';
 MINUTE:                             'MINUTE';
 MINUTE_MICROSECOND:                 'MINUTE_MICROSECOND';
 MINUTE_OF_DAY:                      'MINUTE_OF_DAY';
@@ -186,9 +195,7 @@ YEAR:                               'YEAR';
 YEAR_MONTH:                         'YEAR_MONTH';
 
 // DATASET TYPES
-DATAMODEL:                          'DATAMODEL';
 LOOKUP:                             'LOOKUP';
-SAVEDSEARCH:                        'SAVEDSEARCH';
 
 // CONVERTED DATA TYPES
 INT:                                'INT';
@@ -396,7 +403,6 @@ SUBSTRING:                          'SUBSTRING';
 LTRIM:                              'LTRIM';
 RTRIM:                              'RTRIM';
 TRIM:                               'TRIM';
-TO:                                 'TO';
 LOWER:                              'LOWER';
 UPPER:                              'UPPER';
 CONCAT:                             'CONCAT';
@@ -424,6 +430,7 @@ ISBLANK:                            'ISBLANK';
 // COLLECTION FUNCTIONS
 ARRAY:                              'ARRAY';
 ARRAY_LENGTH:                       'ARRAY_LENGTH';
+MVAPPEND:                           'MVAPPEND';
 MVJOIN:                             'MVJOIN';
 FORALL:                             'FORALL';
 FILTER:                             'FILTER';
@@ -503,7 +510,8 @@ ALIGNTIME:                          'ALIGNTIME';
 PERCENTILE_SHORTCUT:                PERC(INTEGER_LITERAL | DECIMAL_LITERAL) | 'P'(INTEGER_LITERAL | DECIMAL_LITERAL);
 
 SPANLENGTH: [0-9]+ (
-    'US'|'MS'|'CS'|'DS'
+    'US' |'CS'|'DS'
+    |'MS'|'MILLISECOND'|'MILLISECONDS'
     |'S'|'SEC'|'SECS'|'SECOND'|'SECONDS'
     |'MIN'|'MINS'|'MINUTE'|'MINUTES'
     |'H'|'HR'|'HRS'|'HOUR'|'HOURS'

@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.opensearch.search.aggregations.Aggregation;
 import org.opensearch.search.aggregations.Aggregations;
 import org.opensearch.sql.common.utils.StringUtils;
+import org.opensearch.sql.opensearch.request.OpenSearchQueryRequest;
 
 /** Parse multiple metrics in one bucket. */
 @Getter

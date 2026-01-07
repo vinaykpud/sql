@@ -15,9 +15,10 @@ import static org.opensearch.sql.ast.tree.Sort.SortOption.DEFAULT_DESC;
 import static org.opensearch.sql.ast.tree.Sort.SortOrder.ASC;
 import static org.opensearch.sql.ast.tree.Sort.SortOrder.DESC;
 import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_FOR_DEDUP;
-import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_NAME;
-import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_NAME_MAIN;
-import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_NAME_SUBSEARCH;
+import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_FOR_MAIN;
+import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_FOR_RARE_TOP;
+import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_FOR_STREAMSTATS;
+import static org.opensearch.sql.calcite.utils.PlanUtils.ROW_NUMBER_COLUMN_FOR_SUBSEARCH;
 import static org.opensearch.sql.calcite.utils.PlanUtils.getRelation;
 import static org.opensearch.sql.calcite.utils.PlanUtils.getRexCall;
 import static org.opensearch.sql.calcite.utils.PlanUtils.transformPlanToAttachChild;
@@ -39,6 +40,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.calcite.adapter.enumerable.RexToLixTranslator;
 import org.apache.calcite.plan.RelOptTable;
 import org.apache.calcite.plan.ViewExpanders;
 import org.apache.calcite.rel.RelNode;
@@ -48,6 +50,8 @@ import org.apache.calcite.rel.hint.HintStrategyTable;
 import org.apache.calcite.rel.hint.RelHint;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.logical.LogicalValues;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeFamily;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexCorrelVariable;
@@ -58,9 +62,10 @@ import org.apache.calcite.rex.RexVisitorImpl;
 import org.apache.calcite.rex.RexWindowBounds;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.type.ArraySqlType;
+import org.apache.calcite.sql.type.MapSqlType;
 import org.apache.calcite.sql.type.SqlTypeFamily;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.tools.RelBuilder.AggCall;
 import org.apache.calcite.util.Holder;
@@ -111,6 +116,7 @@ import org.opensearch.sql.ast.tree.Kmeans;
 import org.opensearch.sql.ast.tree.Lookup;
 import org.opensearch.sql.ast.tree.Lookup.OutputStrategy;
 import org.opensearch.sql.ast.tree.ML;
+import org.opensearch.sql.ast.tree.Multisearch;
 import org.opensearch.sql.ast.tree.Paginate;
 import org.opensearch.sql.ast.tree.Parse;
 import org.opensearch.sql.ast.tree.Patterns;
@@ -119,11 +125,14 @@ import org.opensearch.sql.ast.tree.RareTopN;
 import org.opensearch.sql.ast.tree.Regex;
 import org.opensearch.sql.ast.tree.Relation;
 import org.opensearch.sql.ast.tree.Rename;
+import org.opensearch.sql.ast.tree.Replace;
+import org.opensearch.sql.ast.tree.ReplacePair;
 import org.opensearch.sql.ast.tree.Rex;
 import org.opensearch.sql.ast.tree.SPath;
 import org.opensearch.sql.ast.tree.Search;
 import org.opensearch.sql.ast.tree.Sort;
 import org.opensearch.sql.ast.tree.Sort.SortOption;
+import org.opensearch.sql.ast.tree.StreamWindow;
 import org.opensearch.sql.ast.tree.SubqueryAlias;
 import org.opensearch.sql.ast.tree.TableFunction;
 import org.opensearch.sql.ast.tree.Trendline;
@@ -131,6 +140,8 @@ import org.opensearch.sql.ast.tree.Trendline.TrendlineType;
 import org.opensearch.sql.ast.tree.UnresolvedPlan;
 import org.opensearch.sql.ast.tree.Values;
 import org.opensearch.sql.ast.tree.Window;
+import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
+import org.opensearch.sql.calcite.plan.LogicalSystemLimit.SystemLimitType;
 import org.opensearch.sql.calcite.plan.OpenSearchConstants;
 import org.opensearch.sql.calcite.utils.BinUtils;
 import org.opensearch.sql.calcite.utils.JoinAndLookupUtils;
@@ -276,10 +287,13 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
           "Rex pattern must contain at least one named capture group");
     }
 
+    // TODO: Once JDK 20+ is supported, consider using Pattern.namedGroups() API for more efficient
+    // named group handling instead of manual parsing in RegexCommonUtils
+
     List<RexNode> newFields = new ArrayList<>();
     List<String> newFieldNames = new ArrayList<>();
 
-    for (int i = 0; i < namedGroups.size(); i++) {
+    for (String groupName : namedGroups) {
       RexNode extractCall;
       if (node.getMaxMatch().isPresent() && node.getMaxMatch().get() > 1) {
         extractCall =
@@ -288,7 +302,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
                 BuiltinFunctionName.REX_EXTRACT_MULTI,
                 fieldRex,
                 context.rexBuilder.makeLiteral(patternStr),
-                context.relBuilder.literal(i + 1),
+                context.rexBuilder.makeLiteral(groupName),
                 context.relBuilder.literal(node.getMaxMatch().get()));
       } else {
         extractCall =
@@ -297,10 +311,10 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
                 BuiltinFunctionName.REX_EXTRACT,
                 fieldRex,
                 context.rexBuilder.makeLiteral(patternStr),
-                context.relBuilder.literal(i + 1));
+                context.rexBuilder.makeLiteral(groupName));
       }
       newFields.add(extractCall);
-      newFieldNames.add(namedGroups.get(i));
+      newFieldNames.add(groupName);
     }
 
     if (node.getOffsetField().isPresent()) {
@@ -371,7 +385,10 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
           "Invalid field exclusion: operation would exclude all fields from the result set");
     }
     AllFields allFields = (AllFields) node.getProjectList().getFirst();
-    tryToRemoveNestedFields(context);
+    if (!(allFields instanceof AllFieldsExcludeMeta)) {
+      // Should not remove nested fields for AllFieldsExcludeMeta.
+      tryToRemoveNestedFields(context);
+    }
     tryToRemoveMetaFields(context, allFields instanceof AllFieldsExcludeMeta);
     return context.relBuilder.peek();
   }
@@ -844,7 +861,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     List<String> originalFieldNames = context.relBuilder.peek().getRowType().getFieldNames();
     List<RexNode> toOverrideList =
         originalFieldNames.stream()
-            .filter(newNames::contains)
+            .filter(originalName -> shouldOverrideField(originalName, newNames))
             .map(a -> (RexNode) context.relBuilder.field(a))
             .toList();
     // 1. add the new fields, For example "age0, country0"
@@ -862,6 +879,17 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     expectedRenameFields.addAll(newNames);
     // 5. rename
     context.relBuilder.rename(expectedRenameFields);
+  }
+
+  private boolean shouldOverrideField(String originalName, List<String> newNames) {
+    return newNames.stream()
+        .anyMatch(
+            newName ->
+                // Match exact field names (e.g., "age" == "age") for flat fields
+                newName.equals(originalName)
+                    // OR match nested paths (e.g., "resource.attributes..." starts with
+                    // "resource.")
+                    || newName.startsWith(originalName + "."));
   }
 
   private List<List<RexInputRef>> extractInputRefList(List<RelBuilder.AggCall> aggCalls) {
@@ -883,7 +911,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
 
   /**
    * Resolve the aggregation with trimming unused fields to avoid bugs in {@link
-   * org.apache.calcite.sql2rel.RelDecorrelator#decorrelateRel(Aggregate, boolean)}
+   * org.apache.calcite.sql2rel.RelDecorrelator#decorrelateRel(Aggregate, boolean, boolean)}
    *
    * @param groupExprList group by expression list
    * @param aggExprList aggregate expression list
@@ -994,10 +1022,54 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     Pair<List<RexNode>, List<AggCall>> reResolved =
         resolveAttributesForAggregation(groupExprList, aggExprList, context);
 
+    List<String> intendedGroupKeyAliases = getGroupKeyNamesAfterAggregation(reResolved.getLeft());
     context.relBuilder.aggregate(
         context.relBuilder.groupKey(reResolved.getLeft()), reResolved.getRight());
+    // During aggregation, Calcite projects both input dependencies and output group-by fields.
+    // When names conflict, Calcite adds numeric suffixes (e.g., "value0").
+    // Apply explicit renaming to restore the intended aliases.
+    context.relBuilder.rename(intendedGroupKeyAliases);
 
     return Pair.of(reResolved.getLeft(), reResolved.getRight());
+  }
+
+  /**
+   * Imitates {@code Registrar.registerExpression} of {@link RelBuilder} to derive the output order
+   * of group-by keys after aggregation.
+   *
+   * <p>The projected input reference comes first, while any other computed expression follows.
+   */
+  private List<String> getGroupKeyNamesAfterAggregation(List<RexNode> nodes) {
+    List<RexNode> reordered = new ArrayList<>();
+    List<RexNode> left = new ArrayList<>();
+    for (RexNode n : nodes) {
+      // The same group-key won't be added twice
+      if (reordered.contains(n) || left.contains(n)) {
+        continue;
+      }
+      if (isInputRef(n)) {
+        reordered.add(n);
+      } else {
+        left.add(n);
+      }
+    }
+    reordered.addAll(left);
+    return reordered.stream()
+        .map(this::extractAliasLiteral)
+        .flatMap(Optional::stream)
+        .map(RexLiteral::stringValue)
+        .toList();
+  }
+
+  /** Whether a rex node is an aliased input reference */
+  private boolean isInputRef(RexNode node) {
+    return switch (node.getKind()) {
+      case AS, DESCENDING, NULLS_FIRST, NULLS_LAST -> {
+        final List<RexNode> operands = ((RexCall) node).operands;
+        yield isInputRef(operands.getFirst());
+      }
+      default -> node instanceof RexInputRef;
+    };
   }
 
   /**
@@ -1064,22 +1136,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     Pair<List<RexNode>, List<AggCall>> aggregationAttributes =
         aggregateWithTrimming(groupExprList, aggExprList, context);
     if (toAddHintsOnAggregate) {
-      final RelHint statHits =
-          RelHint.builder("stats_args").hintOption(Argument.BUCKET_NULLABLE, "false").build();
-      assert context.relBuilder.peek() instanceof LogicalAggregate
-          : "Stats hits should be added to LogicalAggregate";
-      context.relBuilder.hints(statHits);
-      context
-          .relBuilder
-          .getCluster()
-          .setHintStrategies(
-              HintStrategyTable.builder()
-                  .hintStrategy(
-                      "stats_args",
-                      (hint, rel) -> {
-                        return rel instanceof LogicalAggregate;
-                      })
-                  .build());
+      addIgnoreNullBucketHintToAggregate(context);
     }
 
     // schema reordering
@@ -1098,7 +1155,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
         aggregationAttributes.getLeft().stream()
             .map(this::extractAliasLiteral)
             .flatMap(Optional::stream)
-            .map(ref -> ((RexLiteral) ref).getValueAs(String.class))
+            .map(ref -> ref.getValueAs(String.class))
             .map(context.relBuilder::field)
             .map(f -> (RexNode) f)
             .toList();
@@ -1134,6 +1191,15 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
   public RelNode visitJoin(Join node, CalcitePlanContext context) {
     List<UnresolvedPlan> children = node.getChildren();
     children.forEach(c -> analyze(c, context));
+    // add join.subsearch_maxout limit to subsearch side, 0 and negative means unlimited.
+    if (context.sysLimit.joinSubsearchLimit() > 0) {
+      PlanUtils.replaceTop(
+          context.relBuilder,
+          LogicalSystemLimit.create(
+              SystemLimitType.JOIN_SUBSEARCH_MAXOUT,
+              context.relBuilder.peek(),
+              context.relBuilder.literal(context.sysLimit.joinSubsearchLimit())));
+    }
     if (node.getJoinCondition().isEmpty()) {
       // join-with-field-list grammar
       List<String> leftColumns = context.relBuilder.peek(1).getRowType().getFieldNames();
@@ -1492,6 +1558,354 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     return context.relBuilder.peek();
   }
 
+  /**
+   * Validates type compatibility between replacement value and field for fillnull operation. Throws
+   * SemanticCheckException if types are incompatible.
+   */
+  private void validateFillNullTypeCompatibility(
+      RexNode replacement, RexNode fieldRef, String fieldName) {
+    RelDataTypeFamily replacementFamily = replacement.getType().getFamily();
+    RelDataTypeFamily fieldFamily = fieldRef.getType().getFamily();
+
+    // Check if the replacement type is compatible with the field type
+    // Allow NULL type family as it's compatible with any type
+    if (fieldFamily != replacementFamily
+        && fieldFamily != SqlTypeFamily.NULL
+        && replacementFamily != SqlTypeFamily.NULL) {
+      throw new SemanticCheckException(
+          String.format(
+              "fillnull failed: replacement value type %s is not compatible with field '%s' "
+                  + "(type: %s). The replacement value type must match the field type.",
+              replacement.getType().getSqlTypeName(),
+              fieldName,
+              fieldRef.getType().getSqlTypeName()));
+    }
+  }
+
+  @Override
+  public RelNode visitStreamWindow(StreamWindow node, CalcitePlanContext context) {
+    visitChildren(node, context);
+
+    List<UnresolvedExpression> groupList = node.getGroupList();
+    boolean hasGroup = groupList != null && !groupList.isEmpty();
+    boolean hasWindow = node.getWindow() > 0;
+    boolean hasReset = node.getResetBefore() != null || node.getResetAfter() != null;
+
+    // Local helper column names
+    final String RESET_BEFORE_FLAG_COL = "__reset_before_flag__"; // flag for reset_before
+    final String RESET_AFTER_FLAG_COL = "__reset_after_flag__"; // flag for reset_after
+    final String SEGMENT_ID_COL = "__seg_id__"; // segment id
+
+    // CASE: reset
+    if (hasReset) {
+      // 1. Build helper columns: seq, before/after flags, segment_id
+      RelNode leftWithSeg = buildResetHelperColumns(context, node);
+
+      // 2. Run correlate + aggregate with reset-specific filter and cleanup
+      return buildStreamWindowJoinPlan(
+          context,
+          leftWithSeg,
+          node,
+          groupList,
+          ROW_NUMBER_COLUMN_FOR_STREAMSTATS,
+          SEGMENT_ID_COL,
+          new String[] {
+            ROW_NUMBER_COLUMN_FOR_STREAMSTATS,
+            RESET_BEFORE_FLAG_COL,
+            RESET_AFTER_FLAG_COL,
+            SEGMENT_ID_COL
+          });
+    }
+
+    // CASE: global=true + window>0 + has group
+    if (node.isGlobal() && hasWindow && hasGroup) {
+      // 1. Add global sequence column for sliding window
+      RexNode streamSeq =
+          context
+              .relBuilder
+              .aggregateCall(SqlStdOperatorTable.ROW_NUMBER)
+              .over()
+              .rowsTo(RexWindowBounds.CURRENT_ROW)
+              .as(ROW_NUMBER_COLUMN_FOR_STREAMSTATS);
+      context.relBuilder.projectPlus(streamSeq);
+      RelNode left = context.relBuilder.build();
+
+      // 2. Run correlate + aggregate
+      return buildStreamWindowJoinPlan(
+          context,
+          left,
+          node,
+          groupList,
+          ROW_NUMBER_COLUMN_FOR_STREAMSTATS,
+          null,
+          new String[] {ROW_NUMBER_COLUMN_FOR_STREAMSTATS});
+    }
+
+    // Default
+    if (hasGroup) {
+      // only build sequence when there is by condition
+      RexNode streamSeq =
+          context
+              .relBuilder
+              .aggregateCall(SqlStdOperatorTable.ROW_NUMBER)
+              .over()
+              .rowsTo(RexWindowBounds.CURRENT_ROW)
+              .as(ROW_NUMBER_COLUMN_FOR_STREAMSTATS);
+      context.relBuilder.projectPlus(streamSeq);
+    }
+
+    List<RexNode> overExpressions =
+        node.getWindowFunctionList().stream().map(w -> rexVisitor.analyze(w, context)).toList();
+    context.relBuilder.projectPlus(overExpressions);
+
+    // resort when there is by condition
+    if (hasGroup) {
+      context.relBuilder.sort(context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_STREAMSTATS));
+      context.relBuilder.projectExcept(context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_STREAMSTATS));
+    }
+
+    return context.relBuilder.peek();
+  }
+
+  private RelNode buildStreamWindowJoinPlan(
+      CalcitePlanContext context,
+      RelNode leftWithHelpers,
+      StreamWindow node,
+      List<UnresolvedExpression> groupList,
+      String seqCol,
+      String segmentCol,
+      String[] helperColsToCleanup) {
+
+    final Holder<@Nullable RexCorrelVariable> v = Holder.empty();
+    context.relBuilder.push(leftWithHelpers);
+    context.relBuilder.variable(v::set);
+
+    context.relBuilder.push(leftWithHelpers);
+    RexNode rightSeq = context.relBuilder.field(seqCol);
+    RexNode outerSeq = context.relBuilder.field(v.get(), seqCol);
+
+    RexNode filter;
+    if (segmentCol != null) { // reset condition
+      RexNode segRight = context.relBuilder.field(segmentCol);
+      RexNode segOuter = context.relBuilder.field(v.get(), segmentCol);
+      RexNode frame = buildResetFrameFilter(context, node, outerSeq, rightSeq, segOuter, segRight);
+      RexNode group = buildGroupFilter(context, groupList, v.get());
+      filter = (group == null) ? frame : context.relBuilder.and(frame, group);
+    } else { // global + window + by condition
+      RexNode frame = buildFrameFilter(context, node, outerSeq, rightSeq);
+      RexNode group = buildGroupFilter(context, groupList, v.get());
+      filter = context.relBuilder.and(frame, group);
+    }
+    context.relBuilder.filter(filter);
+
+    // aggregate all window functions on right side
+    List<AggCall> aggCalls = buildAggCallsForWindowFunctions(node.getWindowFunctionList(), context);
+    context.relBuilder.aggregate(context.relBuilder.groupKey(), aggCalls);
+    RelNode rightAgg = context.relBuilder.build();
+
+    // correlate LEFT with RIGHT using seq + group fields
+    context.relBuilder.push(leftWithHelpers);
+    context.relBuilder.push(rightAgg);
+    List<RexNode> requiredLeft = buildRequiredLeft(context, seqCol, groupList);
+    if (segmentCol != null) { // also require seg_id for reset segmentation equality
+      requiredLeft = new ArrayList<>(requiredLeft);
+      requiredLeft.add(context.relBuilder.field(2, 0, segmentCol));
+    }
+    context.relBuilder.correlate(JoinRelType.LEFT, v.get().id, requiredLeft);
+
+    // resort to original order
+    boolean hasGroup = !groupList.isEmpty();
+    // resort when 1. global + window + by condition 2.reset + by condition
+    if (hasGroup) {
+      context.relBuilder.sort(context.relBuilder.field(seqCol));
+    }
+
+    // cleanup helper columns
+    List<RexNode> cleanup = new ArrayList<>();
+    for (String c : helperColsToCleanup) {
+      cleanup.add(context.relBuilder.field(c));
+    }
+    context.relBuilder.projectExcept(cleanup);
+    return context.relBuilder.peek();
+  }
+
+  private RelNode buildResetHelperColumns(CalcitePlanContext context, StreamWindow node) {
+    // 1. global sequence to define order
+    RexNode rowNum =
+        context
+            .relBuilder
+            .aggregateCall(SqlStdOperatorTable.ROW_NUMBER)
+            .over()
+            .rowsTo(RexWindowBounds.CURRENT_ROW)
+            .as(ROW_NUMBER_COLUMN_FOR_STREAMSTATS);
+    context.relBuilder.projectPlus(rowNum);
+
+    // 2. before/after flags
+    RexNode beforePred =
+        (node.getResetBefore() == null)
+            ? context.relBuilder.literal(false)
+            : rexVisitor.analyze(node.getResetBefore(), context);
+    RexNode afterPred =
+        (node.getResetAfter() == null)
+            ? context.relBuilder.literal(false)
+            : rexVisitor.analyze(node.getResetAfter(), context);
+    RexNode beforeFlag =
+        context.relBuilder.call(
+            SqlStdOperatorTable.CASE,
+            beforePred,
+            context.relBuilder.literal(1),
+            context.relBuilder.literal(0));
+    RexNode afterFlag =
+        context.relBuilder.call(
+            SqlStdOperatorTable.CASE,
+            afterPred,
+            context.relBuilder.literal(1),
+            context.relBuilder.literal(0));
+    context.relBuilder.projectPlus(context.relBuilder.alias(beforeFlag, "__reset_before_flag__"));
+    context.relBuilder.projectPlus(context.relBuilder.alias(afterFlag, "__reset_after_flag__"));
+
+    // 3. session id = SUM(beforeFlag) over (to current) + SUM(afterFlag) over (to 1 preceding)
+    RexNode sumBefore =
+        context
+            .relBuilder
+            .aggregateCall(
+                SqlStdOperatorTable.SUM, context.relBuilder.field("__reset_before_flag__"))
+            .over()
+            .rowsTo(RexWindowBounds.CURRENT_ROW)
+            .toRex();
+    RexNode sumAfterPrev =
+        context
+            .relBuilder
+            .aggregateCall(
+                SqlStdOperatorTable.SUM, context.relBuilder.field("__reset_after_flag__"))
+            .over()
+            .rowsBetween(
+                RexWindowBounds.UNBOUNDED_PRECEDING,
+                RexWindowBounds.preceding(context.relBuilder.literal(1)))
+            .toRex();
+    sumBefore =
+        context.relBuilder.call(
+            SqlStdOperatorTable.COALESCE, sumBefore, context.relBuilder.literal(0));
+    sumAfterPrev =
+        context.relBuilder.call(
+            SqlStdOperatorTable.COALESCE, sumAfterPrev, context.relBuilder.literal(0));
+
+    RexNode segId = context.relBuilder.call(SqlStdOperatorTable.PLUS, sumBefore, sumAfterPrev);
+    context.relBuilder.projectPlus(context.relBuilder.alias(segId, "__seg_id__"));
+    return context.relBuilder.build();
+  }
+
+  private RexNode buildFrameFilter(
+      CalcitePlanContext context, StreamWindow node, RexNode outerSeq, RexNode rightSeq) {
+    // window always >0
+    // frame: either [outer-(w-1), outer] or [outer-w, outer-1]
+    if (node.isCurrent()) {
+      RexNode lower =
+          context.relBuilder.call(
+              SqlStdOperatorTable.MINUS,
+              outerSeq,
+              context.relBuilder.literal(node.getWindow() - 1));
+      return context.relBuilder.between(rightSeq, lower, outerSeq);
+    } else {
+      RexNode lower =
+          context.relBuilder.call(
+              SqlStdOperatorTable.MINUS, outerSeq, context.relBuilder.literal(node.getWindow()));
+      RexNode upper =
+          context.relBuilder.call(
+              SqlStdOperatorTable.MINUS, outerSeq, context.relBuilder.literal(1));
+      return context.relBuilder.between(rightSeq, lower, upper);
+    }
+  }
+
+  private RexNode buildResetFrameFilter(
+      CalcitePlanContext context,
+      StreamWindow node,
+      RexNode outerSeq,
+      RexNode rightSeq,
+      RexNode segIdOuter,
+      RexNode segIdRight) {
+    // 1. Compute sequence range (handle running window semantics when window == 0)
+    RexNode seqFilter;
+    if (node.getWindow() == 0) {
+      // running: current => rightSeq <= outerSeq; excluding current => rightSeq < outerSeq
+      seqFilter =
+          node.isCurrent()
+              ? context.relBuilder.lessThanOrEqual(rightSeq, outerSeq)
+              : context.relBuilder.lessThan(rightSeq, outerSeq);
+    } else {
+      // Reuse normal frame filter logic when window > 0
+      seqFilter = buildFrameFilter(context, node, outerSeq, rightSeq);
+    }
+    // 2. Ensure same segment (seg_id) for reset partitioning
+    RexNode segFilter = context.relBuilder.equals(segIdRight, segIdOuter);
+    // 3. Combine filters
+    return context.relBuilder.and(seqFilter, segFilter);
+  }
+
+  private RexNode buildGroupFilter(
+      CalcitePlanContext context, List<UnresolvedExpression> groupList, RexCorrelVariable correl) {
+    // build conjunctive equality filters: right.g_i = outer.g_i
+    if (groupList.isEmpty()) {
+      return null;
+    }
+    List<RexNode> equalsList =
+        groupList.stream()
+            .map(
+                expr -> {
+                  String groupName = extractGroupFieldName(expr);
+                  RexNode rightGroup = context.relBuilder.field(groupName);
+                  RexNode outerGroup = context.relBuilder.field(correl, groupName);
+                  return context.relBuilder.equals(rightGroup, outerGroup);
+                })
+            .toList();
+    return context.relBuilder.and(equalsList);
+  }
+
+  private String extractGroupFieldName(UnresolvedExpression groupExpr) {
+    if (groupExpr instanceof Alias groupAlias
+        && groupAlias.getDelegated() instanceof Field groupField) {
+      return groupField.getField().toString();
+    } else if (groupExpr instanceof Field groupField) {
+      return groupField.getField().toString();
+    } else {
+      throw new IllegalArgumentException(
+          "Unsupported group expression: only field or alias(field) is supported");
+    }
+  }
+
+  private List<AggCall> buildAggCallsForWindowFunctions(
+      List<UnresolvedExpression> windowExprs, CalcitePlanContext context) {
+    List<AggCall> aggCalls = new ArrayList<>();
+    for (UnresolvedExpression expr : windowExprs) {
+      if (expr instanceof Alias a && a.getDelegated() instanceof WindowFunction wf) {
+        Function func = (Function) wf.getFunction();
+        List<UnresolvedExpression> args = func.getFuncArgs();
+        // first argument is the input field, others are function params
+        UnresolvedExpression field = args.isEmpty() ? null : args.get(0);
+        List<UnresolvedExpression> rest =
+            args.size() <= 1 ? List.of() : args.subList(1, args.size());
+        AggregateFunction aggFunc = new AggregateFunction(func.getFuncName(), field, rest);
+        AggCall call = aggVisitor.analyze(new Alias(a.getName(), aggFunc), context);
+        aggCalls.add(call);
+      } else {
+        throw new IllegalArgumentException("Unsupported window function in streamstats");
+      }
+    }
+    return aggCalls;
+  }
+
+  private List<RexNode> buildRequiredLeft(
+      CalcitePlanContext context, String seqCol, List<UnresolvedExpression> groupList) {
+    List<RexNode> requiredLeft = new ArrayList<>();
+    // reference to left seq column
+    requiredLeft.add(context.relBuilder.field(2, 0, seqCol));
+    for (UnresolvedExpression groupExpr : groupList) {
+      String groupName = extractGroupFieldName(groupExpr);
+      requiredLeft.add(context.relBuilder.field(2, 0, groupName));
+    }
+    return requiredLeft;
+  }
+
   @Override
   public RelNode visitFillNull(FillNull node, CalcitePlanContext context) {
     visitChildren(node, context);
@@ -1500,6 +1914,19 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
             .size()) {
       throw new IllegalArgumentException("The field list cannot be duplicated in fillnull");
     }
+
+    // Validate type compatibility when replacementForAll is present
+    if (node.getReplacementForAll().isPresent()) {
+      List<RelDataTypeField> fieldsList = context.relBuilder.peek().getRowType().getFieldList();
+      RexNode replacement = rexVisitor.analyze(node.getReplacementForAll().get(), context);
+
+      // Validate all fields are compatible with the replacement value
+      for (RelDataTypeField field : fieldsList) {
+        RexNode fieldRef = context.rexBuilder.makeInputRef(field.getType(), field.getIndex());
+        validateFillNullTypeCompatibility(replacement, fieldRef, field.getName());
+      }
+    }
+
     List<RexNode> projects = new ArrayList<>();
     List<RelDataTypeField> fieldsList = context.relBuilder.peek().getRowType().getFieldList();
     for (RelDataTypeField field : fieldsList) {
@@ -1508,6 +1935,8 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
       for (Pair<Field, UnresolvedExpression> pair : node.getReplacementPairs()) {
         if (field.getName().equalsIgnoreCase(pair.getLeft().getField().toString())) {
           RexNode replacement = rexVisitor.analyze(pair.getRight(), context);
+          // Validate type compatibility before COALESCE
+          validateFillNullTypeCompatibility(replacement, fieldRef, field.getName());
           RexNode coalesce = context.rexBuilder.coalesce(fieldRef, replacement);
           RexNode coalesceWithAlias = context.relBuilder.alias(coalesce, field.getName());
           projects.add(coalesceWithAlias);
@@ -1543,7 +1972,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
             List.of(),
             WindowFrame.toCurrentRow());
     context.relBuilder.projectPlus(
-        context.relBuilder.alias(mainRowNumber, ROW_NUMBER_COLUMN_NAME_MAIN));
+        context.relBuilder.alias(mainRowNumber, ROW_NUMBER_COLUMN_FOR_MAIN));
 
     // 3. build subsearch tree (attach relation to subsearch)
     UnresolvedPlan relation = getRelation(node);
@@ -1561,7 +1990,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
             List.of(),
             WindowFrame.toCurrentRow());
     context.relBuilder.projectPlus(
-        context.relBuilder.alias(subsearchRowNumber, ROW_NUMBER_COLUMN_NAME_SUBSEARCH));
+        context.relBuilder.alias(subsearchRowNumber, ROW_NUMBER_COLUMN_FOR_SUBSEARCH));
 
     List<String> subsearchFields = context.relBuilder.peek().getRowType().getFieldNames();
     List<String> mainFields = context.relBuilder.peek(1).getRowType().getFieldNames();
@@ -1575,8 +2004,8 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     // 7. join with condition `_row_number_main_ = _row_number_subsearch_`
     RexNode joinCondition =
         context.relBuilder.equals(
-            context.relBuilder.field(2, 0, ROW_NUMBER_COLUMN_NAME_MAIN),
-            context.relBuilder.field(2, 1, ROW_NUMBER_COLUMN_NAME_SUBSEARCH));
+            context.relBuilder.field(2, 0, ROW_NUMBER_COLUMN_FOR_MAIN),
+            context.relBuilder.field(2, 1, ROW_NUMBER_COLUMN_FOR_SUBSEARCH));
     context.relBuilder.join(
         JoinAndLookupUtils.translateJoinType(Join.JoinType.FULL), joinCondition);
 
@@ -1584,8 +2013,8 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
       // 8. if override = false, drop both _row_number_ columns
       context.relBuilder.projectExcept(
           List.of(
-              context.relBuilder.field(ROW_NUMBER_COLUMN_NAME_MAIN),
-              context.relBuilder.field(ROW_NUMBER_COLUMN_NAME_SUBSEARCH)));
+              context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_MAIN),
+              context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_SUBSEARCH)));
       return context.relBuilder.peek();
     } else {
       // 9. if override = true, override the duplicated columns in main by subsearch values
@@ -1597,11 +2026,11 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
           mainFields.stream().filter(subsearchFields::contains).collect(Collectors.toSet());
       RexNode caseCondition =
           context.relBuilder.equals(
-              context.relBuilder.field(ROW_NUMBER_COLUMN_NAME_MAIN),
-              context.relBuilder.field(ROW_NUMBER_COLUMN_NAME_SUBSEARCH));
+              context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_MAIN),
+              context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_SUBSEARCH));
       for (int mainFieldIndex = 0; mainFieldIndex < mainFields.size(); mainFieldIndex++) {
         String mainFieldName = mainFields.get(mainFieldIndex);
-        if (mainFieldName.equals(ROW_NUMBER_COLUMN_NAME_MAIN)) {
+        if (mainFieldName.equals(ROW_NUMBER_COLUMN_FOR_MAIN)) {
           continue;
         }
         finalFieldNames.add(mainFieldName);
@@ -1626,7 +2055,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
           subsearchFieldIndex < subsearchFields.size();
           subsearchFieldIndex++) {
         String subsearchFieldName = subsearchFields.get(subsearchFieldIndex);
-        if (subsearchFieldName.equals(ROW_NUMBER_COLUMN_NAME_SUBSEARCH)) {
+        if (subsearchFieldName.equals(ROW_NUMBER_COLUMN_FOR_SUBSEARCH)) {
           continue;
         }
         if (!duplicatedFields.contains(subsearchFieldName)) {
@@ -1649,63 +2078,69 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
         node.getSubSearch().accept(new EmptySourcePropagateVisitor(), null);
     prunedSubSearch.accept(this, context);
 
-    // 3. Merge two query schemas
+    // 3. Merge two query schemas using shared logic
     RelNode subsearchNode = context.relBuilder.build();
     RelNode mainNode = context.relBuilder.build();
-    List<RelDataTypeField> mainFields = mainNode.getRowType().getFieldList();
-    List<RelDataTypeField> subsearchFields = subsearchNode.getRowType().getFieldList();
-    Map<String, RelDataTypeField> subsearchFieldMap =
-        subsearchFields.stream()
-            .map(typeField -> Pair.of(typeField.getName(), typeField))
-            .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
-    boolean[] isSelected = new boolean[subsearchFields.size()];
-    List<String> names = new ArrayList<>();
-    List<RexNode> mainUnionProjects = new ArrayList<>();
-    List<RexNode> subsearchUnionProjects = new ArrayList<>();
 
-    // 3.1 Start with main query's schema. If subsearch plan doesn't have matched column,
-    // add same type column in place with NULL literal
-    for (int i = 0; i < mainFields.size(); i++) {
-      mainUnionProjects.add(context.rexBuilder.makeInputRef(mainNode, i));
-      RelDataTypeField mainField = mainFields.get(i);
-      RelDataTypeField subsearchField = subsearchFieldMap.get(mainField.getName());
-      names.add(mainField.getName());
-      if (subsearchFieldMap.containsKey(mainField.getName())
-          && subsearchField != null
-          && subsearchField.getType().equals(mainField.getType())) {
-        subsearchUnionProjects.add(
-            context.rexBuilder.makeInputRef(subsearchNode, subsearchField.getIndex()));
-        isSelected[subsearchField.getIndex()] = true;
-      } else {
-        subsearchUnionProjects.add(context.rexBuilder.makeNullLiteral(mainField.getType()));
-      }
+    // Use shared schema merging logic that handles type conflicts via field renaming
+    List<RelNode> nodesToMerge = Arrays.asList(mainNode, subsearchNode);
+    List<RelNode> projectedNodes =
+        SchemaUnifier.buildUnifiedSchemaWithConflictResolution(nodesToMerge, context);
+
+    // 4. Union the projected plans
+    for (RelNode projectedNode : projectedNodes) {
+      context.relBuilder.push(projectedNode);
     }
-
-    // 3.2 Add remaining subsearch columns to the merged schema
-    for (int j = 0; j < subsearchFields.size(); j++) {
-      RelDataTypeField subsearchField = subsearchFields.get(j);
-      if (!isSelected[j]) {
-        mainUnionProjects.add(context.rexBuilder.makeNullLiteral(subsearchField.getType()));
-        subsearchUnionProjects.add(context.rexBuilder.makeInputRef(subsearchNode, j));
-        names.add(subsearchField.getName());
-      }
-    }
-
-    // 3.3 Uniquify names in case the merged names have duplicates
-    List<String> uniqNames =
-        SqlValidatorUtil.uniquify(names, SqlValidatorUtil.EXPR_SUGGESTER, true);
-
-    // 4. Apply new schema over two query plans
-    RelNode projectedMainNode =
-        context.relBuilder.push(mainNode).project(mainUnionProjects, uniqNames).build();
-    RelNode projectedSubsearchNode =
-        context.relBuilder.push(subsearchNode).project(subsearchUnionProjects, uniqNames).build();
-
-    // 5. Union all two projected plans
-    context.relBuilder.push(projectedMainNode);
-    context.relBuilder.push(projectedSubsearchNode);
     context.relBuilder.union(true);
     return context.relBuilder.peek();
+  }
+
+  @Override
+  public RelNode visitMultisearch(Multisearch node, CalcitePlanContext context) {
+    List<RelNode> subsearchNodes = new ArrayList<>();
+    for (UnresolvedPlan subsearch : node.getSubsearches()) {
+      UnresolvedPlan prunedSubSearch = subsearch.accept(new EmptySourcePropagateVisitor(), null);
+      prunedSubSearch.accept(this, context);
+      subsearchNodes.add(context.relBuilder.build());
+    }
+
+    // Use shared schema merging logic that handles type conflicts via field renaming
+    List<RelNode> alignedNodes =
+        SchemaUnifier.buildUnifiedSchemaWithConflictResolution(subsearchNodes, context);
+
+    for (RelNode alignedNode : alignedNodes) {
+      context.relBuilder.push(alignedNode);
+    }
+    context.relBuilder.union(true, alignedNodes.size());
+
+    RelDataType rowType = context.relBuilder.peek().getRowType();
+    String timestampField = findTimestampField(rowType);
+    if (timestampField != null) {
+      RelDataTypeField timestampFieldRef = rowType.getField(timestampField, false, false);
+      if (timestampFieldRef != null) {
+        RexNode timestampRef =
+            context.rexBuilder.makeInputRef(
+                context.relBuilder.peek(), timestampFieldRef.getIndex());
+        context.relBuilder.sort(context.relBuilder.desc(timestampRef));
+      }
+    }
+
+    return context.relBuilder.peek();
+  }
+
+  /**
+   * Finds the @timestamp field for multisearch ordering. Only @timestamp field is used for
+   * timestamp interleaving. Other timestamp-like fields are ignored.
+   *
+   * @param rowType The row type to search for @timestamp field
+   * @return "@timestamp" if the field exists, or null if not found
+   */
+  private String findTimestampField(RelDataType rowType) {
+    RelDataTypeField field = rowType.getField("@timestamp", false, false);
+    if (field != null) {
+      return "@timestamp";
+    }
+    return null;
   }
 
   /*
@@ -1744,9 +2179,8 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
   @Override
   public RelNode visitRareTopN(RareTopN node, CalcitePlanContext context) {
     visitChildren(node, context);
-
-    ArgumentMap arguments = ArgumentMap.of(node.getArguments());
-    String countFieldName = (String) arguments.get("countField").getValue();
+    ArgumentMap argumentMap = ArgumentMap.of(node.getArguments());
+    String countFieldName = (String) argumentMap.get(RareTopN.Option.countField.name()).getValue();
     if (context.relBuilder.peek().getRowType().getFieldNames().contains(countFieldName)) {
       throw new IllegalArgumentException(
           "Field `"
@@ -1761,9 +2195,28 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     groupExprList.addAll(fieldList);
     List<UnresolvedExpression> aggExprList =
         List.of(AstDSL.alias(countFieldName, AstDSL.aggregate("count", null)));
+
+    // if usenull=false, add a isNotNull before Aggregate and the hint to this Aggregate
+    Boolean bucketNullable = (Boolean) argumentMap.get(RareTopN.Option.useNull.name()).getValue();
+    boolean toAddHintsOnAggregate = false;
+    if (!bucketNullable && !groupExprList.isEmpty()) {
+      toAddHintsOnAggregate = true;
+      // add isNotNull filter before aggregation to filter out null bucket
+      List<RexNode> groupByList =
+          groupExprList.stream().map(expr -> rexVisitor.analyze(expr, context)).toList();
+      context.relBuilder.filter(
+          PlanUtils.getSelectColumns(groupByList).stream()
+              .map(context.relBuilder::field)
+              .map(context.relBuilder::isNotNull)
+              .toList());
+    }
     aggregateWithTrimming(groupExprList, aggExprList, context);
 
-    // 2. add a window column
+    if (toAddHintsOnAggregate) {
+      addIgnoreNullBucketHintToAggregate(context);
+    }
+
+    // 2. add count() column with sort direction
     List<RexNode> partitionKeys = rexVisitor.analyze(node.getGroupExprList(), context);
     RexNode countField;
     if (node.getCommandType() == RareTopN.CommandType.TOP) {
@@ -1771,6 +2224,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     } else {
       countField = context.relBuilder.field(countFieldName);
     }
+
     RexNode rowNumberWindowOver =
         PlanUtils.makeOver(
             context,
@@ -1781,24 +2235,44 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
             List.of(countField),
             WindowFrame.toCurrentRow());
     context.relBuilder.projectPlus(
-        context.relBuilder.alias(rowNumberWindowOver, ROW_NUMBER_COLUMN_NAME));
+        context.relBuilder.alias(rowNumberWindowOver, ROW_NUMBER_COLUMN_FOR_RARE_TOP));
 
     // 3. filter row_number() <= k in each partition
-    Integer N = (Integer) arguments.get("noOfResults").getValue();
+    int k = node.getNoOfResults();
     context.relBuilder.filter(
         context.relBuilder.lessThanOrEqual(
-            context.relBuilder.field(ROW_NUMBER_COLUMN_NAME), context.relBuilder.literal(N)));
+            context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_RARE_TOP),
+            context.relBuilder.literal(k)));
 
     // 4. project final output. the default output is group by list + field list
-    Boolean showCount = (Boolean) arguments.get("showCount").getValue();
+    Boolean showCount = (Boolean) argumentMap.get(RareTopN.Option.showCount.name()).getValue();
     if (showCount) {
-      context.relBuilder.projectExcept(context.relBuilder.field(ROW_NUMBER_COLUMN_NAME));
+      context.relBuilder.projectExcept(context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_RARE_TOP));
     } else {
       context.relBuilder.projectExcept(
-          context.relBuilder.field(ROW_NUMBER_COLUMN_NAME),
+          context.relBuilder.field(ROW_NUMBER_COLUMN_FOR_RARE_TOP),
           context.relBuilder.field(countFieldName));
     }
     return context.relBuilder.peek();
+  }
+
+  private static void addIgnoreNullBucketHintToAggregate(CalcitePlanContext context) {
+    final RelHint statHits =
+        RelHint.builder("stats_args").hintOption(Argument.BUCKET_NULLABLE, "false").build();
+    assert context.relBuilder.peek() instanceof LogicalAggregate
+        : "Stats hits should be added to LogicalAggregate";
+    context.relBuilder.hints(statHits);
+    context
+        .relBuilder
+        .getCluster()
+        .setHintStrategies(
+            HintStrategyTable.builder()
+                .hintStrategy(
+                    "stats_args",
+                    (hint, rel) -> {
+                      return rel instanceof LogicalAggregate;
+                    })
+                .build());
   }
 
   @Override
@@ -1865,6 +2339,9 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
 
   /** Helper method to get the function name for proper column naming */
   private String getValueFunctionName(UnresolvedExpression aggregateFunction) {
+    if (aggregateFunction instanceof Alias) {
+      return ((Alias) aggregateFunction).getName();
+    }
     if (!(aggregateFunction instanceof AggregateFunction)) {
       return "value";
     }
@@ -2348,6 +2825,81 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     }
   }
 
+  @Override
+  public RelNode visitReplace(Replace node, CalcitePlanContext context) {
+    visitChildren(node, context);
+
+    List<String> fieldNames = context.relBuilder.peek().getRowType().getFieldNames();
+
+    // Create a set of field names to replace for quick lookup
+    Set<String> fieldsToReplace =
+        node.getFieldList().stream().map(f -> f.getField().toString()).collect(Collectors.toSet());
+
+    // Validate that all fields to replace exist by calling field() on each
+    // This leverages relBuilder.field()'s built-in validation which throws
+    // IllegalArgumentException if any field doesn't exist
+    for (String fieldToReplace : fieldsToReplace) {
+      context.relBuilder.field(fieldToReplace);
+    }
+
+    List<RexNode> projectList = new ArrayList<>();
+
+    // Project all fields, replacing specified ones in-place
+    for (String fieldName : fieldNames) {
+      if (fieldsToReplace.contains(fieldName)) {
+        // Replace this field in-place with all pattern/replacement pairs applied sequentially
+        RexNode fieldRef = context.relBuilder.field(fieldName);
+
+        // Apply all replacement pairs sequentially (nested REPLACE calls)
+        for (ReplacePair pair : node.getReplacePairs()) {
+          RexNode patternNode = rexVisitor.analyze(pair.getPattern(), context);
+          RexNode replacementNode = rexVisitor.analyze(pair.getReplacement(), context);
+
+          String patternStr = pair.getPattern().getValue().toString();
+          String replacementStr = pair.getReplacement().getValue().toString();
+
+          if (patternStr.contains("*")) {
+            WildcardUtils.validateWildcardSymmetry(patternStr, replacementStr);
+
+            String regexPattern = WildcardUtils.convertWildcardPatternToRegex(patternStr);
+            String regexReplacement =
+                WildcardUtils.convertWildcardReplacementToRegex(replacementStr);
+
+            RexNode regexPatternNode =
+                context.rexBuilder.makeLiteral(
+                    regexPattern,
+                    context.rexBuilder.getTypeFactory().createSqlType(SqlTypeName.VARCHAR),
+                    true);
+            RexNode regexReplacementNode =
+                context.rexBuilder.makeLiteral(
+                    regexReplacement,
+                    context.rexBuilder.getTypeFactory().createSqlType(SqlTypeName.VARCHAR),
+                    true);
+
+            fieldRef =
+                context.rexBuilder.makeCall(
+                    org.apache.calcite.sql.fun.SqlLibraryOperators.REGEXP_REPLACE_3,
+                    fieldRef,
+                    regexPatternNode,
+                    regexReplacementNode);
+          } else {
+            fieldRef =
+                context.relBuilder.call(
+                    SqlStdOperatorTable.REPLACE, fieldRef, patternNode, replacementNode);
+          }
+        }
+
+        projectList.add(fieldRef);
+      } else {
+        // Keep original field unchanged
+        projectList.add(context.relBuilder.field(fieldName));
+      }
+    }
+
+    context.relBuilder.project(projectList, fieldNames);
+    return context.relBuilder.peek();
+  }
+
   private void buildParseRelNode(Parse node, CalcitePlanContext context) {
     RexNode sourceField = rexVisitor.analyze(node.getSourceField(), context);
     ParseMethod parseMethod = node.getParseMethod();
@@ -2421,6 +2973,21 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
     projectPlusOverriding(newFields, groupCandidates, context);
   }
 
+  /**
+   * CALCITE-6981 introduced a stricter type checking for Array type in {@link RexToLixTranslator}.
+   * We defined a MAP(VARCHAR, ANY) in {@link UserDefinedFunctionUtils#nullablePatternAggList}, when
+   * we convert the value type to ArraySqlType, it will check the source data type by {@link
+   * RelDataType#getComponentType()} which will return null due to the source type is ANY.
+   */
+  private RexNode explicitMapType(
+      CalcitePlanContext context, RexNode origin, SqlTypeName targetType) {
+    MapSqlType originalMapType = (MapSqlType) origin.getType();
+    ArraySqlType newValueType =
+        new ArraySqlType(context.rexBuilder.getTypeFactory().createSqlType(targetType), true);
+    MapSqlType newMapType = new MapSqlType(originalMapType.getKeyType(), newValueType, true);
+    return new RexInputRef(((RexInputRef) origin).getIndex(), newMapType);
+  }
+
   private void flattenParsedPattern(
       String originalPatternResultAlias,
       RexNode parsedNode,
@@ -2481,7 +3048,7 @@ public class CalciteRelNodeVisitor extends AbstractNodeVisitor<RelNode, CalciteP
               PPLFuncImpTable.INSTANCE.resolve(
                   context.rexBuilder,
                   BuiltinFunctionName.INTERNAL_ITEM,
-                  parsedNode,
+                  explicitMapType(context, parsedNode, SqlTypeName.VARCHAR),
                   context.rexBuilder.makeLiteral(PatternUtils.SAMPLE_LOGS)),
               true,
               true);

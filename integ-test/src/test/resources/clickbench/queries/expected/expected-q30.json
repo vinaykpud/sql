@@ -1,0 +1,460 @@
+{
+  "schema": [
+    {
+      "name": "sum(ResolutionWidth)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+1)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+2)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+3)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+4)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+5)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+6)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+7)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+8)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+9)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+10)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+11)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+12)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+13)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+14)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+15)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+16)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+17)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+18)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+19)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+20)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+21)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+22)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+23)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+24)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+25)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+26)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+27)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+28)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+29)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+30)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+31)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+32)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+33)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+34)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+35)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+36)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+37)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+38)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+39)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+40)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+41)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+42)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+43)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+44)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+45)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+46)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+47)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+48)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+49)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+50)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+51)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+52)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+53)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+54)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+55)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+56)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+57)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+58)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+59)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+60)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+61)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+62)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+63)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+64)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+65)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+66)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+67)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+68)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+69)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+70)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+71)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+72)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+73)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+74)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+75)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+76)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+77)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+78)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+79)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+80)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+81)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+82)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+83)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+84)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+85)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+86)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+87)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+88)",
+      "type": "bigint"
+    },
+    {
+      "name": "sum(ResolutionWidth+89)",
+      "type": "bigint"
+    }
+  ],
+  "datarows": [
+    [
+      13740,
+      13749,
+      13758,
+      13767,
+      13776,
+      13785,
+      13794,
+      13803,
+      13812,
+      13821,
+      13830,
+      13839,
+      13848,
+      13857,
+      13866,
+      13875,
+      13884,
+      13893,
+      13902,
+      13911,
+      13920,
+      13929,
+      13938,
+      13947,
+      13956,
+      13965,
+      13974,
+      13983,
+      13992,
+      14001,
+      14010,
+      14019,
+      14028,
+      14037,
+      14046,
+      14055,
+      14064,
+      14073,
+      14082,
+      14091,
+      14100,
+      14109,
+      14118,
+      14127,
+      14136,
+      14145,
+      14154,
+      14163,
+      14172,
+      14181,
+      14190,
+      14199,
+      14208,
+      14217,
+      14226,
+      14235,
+      14244,
+      14253,
+      14262,
+      14271,
+      14280,
+      14289,
+      14298,
+      14307,
+      14316,
+      14325,
+      14334,
+      14343,
+      14352,
+      14361,
+      14370,
+      14379,
+      14388,
+      14397,
+      14406,
+      14415,
+      14424,
+      14433,
+      14442,
+      14451,
+      14460,
+      14469,
+      14478,
+      14487,
+      14496,
+      14505,
+      14514,
+      14523,
+      14532,
+      14541
+    ]
+  ],
+  "total": 1,
+  "size": 1
+}

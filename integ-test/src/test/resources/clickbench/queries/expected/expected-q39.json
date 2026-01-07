@@ -1,0 +1,24 @@
+{
+  "schema": [
+    {
+      "name": "PageViews",
+      "type": "bigint"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      1,
+      "https://example.com/page?ref=google"
+    ],
+    [
+      1,
+      "https://www.google.com/search?q=test"
+    ]
+  ],
+  "total": 2,
+  "size": 2
+}

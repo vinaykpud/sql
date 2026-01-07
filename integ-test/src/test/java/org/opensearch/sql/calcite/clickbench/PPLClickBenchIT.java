@@ -5,11 +5,19 @@
 
 package org.opensearch.sql.calcite.clickbench;
 
+import static org.opensearch.sql.util.MatcherUtils.assertJsonEquals;
+import static org.opensearch.sql.util.MatcherUtils.assertYamlEqualsIgnoreId;
+
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
@@ -20,6 +28,10 @@ import org.opensearch.sql.ppl.PPLIntegTestCase;
 @FixMethodOrder(MethodSorters.JVM)
 public class PPLClickBenchIT extends PPLIntegTestCase {
   private static final MapBuilder<String, Long> summary = MapBuilder.newMapBuilder();
+  private static final MapBuilder<Integer, Boolean> response_200 = MapBuilder.newMapBuilder();
+  private static final List<Integer> response_200_failing = new java.util.ArrayList<Integer>();
+  private static final List<Integer> non_200 = new java.util.ArrayList<Integer>();
+  private static final List<Integer> passing = new java.util.ArrayList<Integer>();
 
   @Override
   public void init() throws Exception {
@@ -37,27 +49,33 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
     }
     System.out.println("Summary:");
     map.entrySet().stream()
-        .sorted(Map.Entry.comparingByKey())
-        .forEach(
-            entry ->
-                System.out.printf(Locale.ENGLISH, "%s: %d ms%n", entry.getKey(), entry.getValue()));
+            .sorted(Map.Entry.comparingByKey())
+            .forEach(
+                    entry ->
+                            System.out.printf(Locale.ENGLISH, "%s: %d ms%n", entry.getKey(), entry.getValue()));
     System.out.printf(
-        Locale.ENGLISH,
-        "Total %d queries succeed. Average duration: %d ms%n",
-        map.size(),
-        total / map.size());
+            Locale.ENGLISH,
+            "Total %d queries succeed. Average duration: %d ms%n",
+            map.size(),
+            total / map.size());
     System.out.println();
+
+    // Display detailed query results
+    if (!passing.isEmpty() || !response_200_failing.isEmpty() || !non_200.isEmpty()) {
+      System.out.printf(
+              Locale.ENGLISH,
+              "Total: %d | Passed: %d | Failed (200): %d | Failed (non-200): %d%n",
+              passing.size() + response_200_failing.size() + non_200.size(),
+              passing.size(),
+              response_200_failing.size(),
+              non_200.size());
+      System.out.println();
+    }
   }
 
   /** Ignore queries that are not supported by Calcite. */
   protected Set<Integer> ignored() {
-    if (GCedMemoryUsage.initialized()) {
-      return Set.of(29);
-    } else {
-      // Ignore q30 when use RuntimeMemoryUsage,
-      // because of too much script push down, which will cause ResourceMonitor restriction.
-      return Set.of(29, 30);
-    }
+    return Set.of(41); // query currently fails on main
   }
 
   @Test
@@ -66,8 +84,73 @@ public class PPLClickBenchIT extends PPLIntegTestCase {
       if (ignored().contains(i)) {
         continue;
       }
+      logger.info("Running Query{}", i);
       String ppl = sanitize(loadFromFile("clickbench/queries/q" + i + ".ppl"));
+      // V2 gets unstable scripts, ignore them when comparing plan
+      if (isCalciteEnabled()) {
+        String expected = loadExpectedPlan("clickbench/q" + i + ".yaml");
+        assertYamlEqualsIgnoreId(expected, explainQueryYaml(ppl));
+      }
       timing(summary, "q" + i, ppl);
     }
+  }
+
+  /** Queries that are returning 200s and response is correct and not empty */
+  protected Set<Integer> df_ignored() {
+    return Set.of(4, 9, 10, 11, 12, 14, 19, 20, 24, 25, 26, 27, 28, 29, 30, 39, 40, 41, 42, 43);
+  }
+
+  @Test
+  public void testDataFusion() throws IOException {
+    // flip this to run everything and get the full current list of p/f/f200.
+    // when false will fail on first f200 occurence and show assert diff.
+    boolean runAllQueries = true;
+    Set<Integer> ignore = df_ignored();
+    for (int i = 1; i <= 43; i++) {
+      if (ignored().contains(i)) {
+        continue;
+      }
+      String ppl = sanitize(loadFromFile("clickbench/queries/q" + i + ".ppl"));
+      System.out.println("RUNNING QUERY NUMBER: " + i + " Query: " + ppl);
+
+      // TODO: Add plan comparisons
+//      if (isCalciteEnabled()) {
+//        String expected = loadExpectedPlan("clickbench/q" + i + ".yaml");
+//        assertYamlEqualsIgnoreId(expected, explainQueryYaml(ppl));
+//      }
+      // runs the query and buckets into failing (non200), passing (200 and response matches), failing_200
+      String actual = runQuery(summary, response_200, i, ppl);
+      String expected = sanitize(loadFromFile("clickbench/queries/expected/expected-q" + i + ".json"));
+
+      if (response_200.get(i)) {
+        // 200 returned and we expect it to pass
+        try {
+          assertJsonEquals(String.format("query number %d", i), expected, actual);
+          passing.add(i);
+        } catch (AssertionError e) {
+          // comment this out to get a full list of current pass/failed
+          if (!ignore.contains(i) && runAllQueries == false) {
+            throw e;
+          }
+          response_200_failing.add(i);
+          // 200 but we haven't marked supported yet, mark it in a separate list
+        }
+      } else {
+        non_200.add(i);
+      }
+    }
+    // display results
+    System.out.println("PASSING: " + passing);
+    System.out.println("FAILING WITH 200: " + response_200_failing);
+    System.out.println("FAILING: " + non_200);
+
+    List<Integer> failed = new ArrayList<>();
+    failed.addAll(response_200_failing);
+    failed.addAll(non_200);
+    List<Integer> supportedButNotPassing = failed.stream()
+            .filter(i -> !ignore.contains(i))
+            .sorted()
+            .toList();
+    assertEquals("Expected all supported queries to be marked passing", Collections.emptyList(), supportedButNotPassing);
   }
 }

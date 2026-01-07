@@ -1,0 +1,77 @@
+{
+  "schema": [
+    {
+      "name": "sum(AdvEngineID)",
+      "type": "bigint"
+    },
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "avg(ResolutionWidth)",
+      "type": "double"
+    },
+    {
+      "name": "dc(UserID)",
+      "type": "bigint"
+    },
+    {
+      "name": "RegionID",
+      "type": "int"
+    }
+  ],
+  "datarows": [
+    [
+      4,
+      2,
+      1024.0,
+      1,
+      103
+    ],
+    [
+      0,
+      2,
+      1920.0,
+      2,
+      104
+    ],
+    [
+      0,
+      1,
+      1920.0,
+      1,
+      100
+    ],
+    [
+      0,
+      1,
+      1366.0,
+      1,
+      101
+    ],
+    [
+      1,
+      1,
+      1280.0,
+      1,
+      102
+    ],
+    [
+      2,
+      1,
+      1920.0,
+      1,
+      331
+    ],
+    [
+      4,
+      1,
+      1366.0,
+      1,
+      479
+    ]
+  ],
+  "total": 7,
+  "size": 7
+}

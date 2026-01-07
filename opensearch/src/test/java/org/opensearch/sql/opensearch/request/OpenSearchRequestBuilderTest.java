@@ -409,6 +409,8 @@ class OpenSearchRequestBuilderTest {
             .timeout(DEFAULT_QUERY_TIMEOUT)
             .sort(DOC_FIELD_NAME, ASC)
             .sort(METADATA_FIELD_ID, ASC)
+            .sort(DOC_FIELD_NAME, ASC)
+            .sort(SortBuilders.shardDocSort())
             .pointInTimeBuilder(new PointInTimeBuilder("samplePITId"))
             .fetchSource(new String[] {"intA"}, new String[0]),
         requestBuilder);
@@ -422,6 +424,8 @@ class OpenSearchRequestBuilderTest {
                 .timeout(DEFAULT_QUERY_TIMEOUT)
                 .sort(DOC_FIELD_NAME, ASC)
                 .sort(METADATA_FIELD_ID, ASC)
+                .sort(DOC_FIELD_NAME, ASC)
+                .sort(SortBuilders.shardDocSort())
                 .pointInTimeBuilder(new PointInTimeBuilder("samplePITId"))
                 .fetchSource("intA", null),
             exprValueFactory,
@@ -536,6 +540,8 @@ class OpenSearchRequestBuilderTest {
             .size(MAX_RESULT_WINDOW)
             .timeout(DEFAULT_QUERY_TIMEOUT)
             .sort(DOC_FIELD_NAME, ASC)
+            .sort(SortBuilders.shardDocSort())
+            .sort(DOC_FIELD_NAME, ASC)
             .sort(METADATA_FIELD_ID, ASC)
             .pointInTimeBuilder(new PointInTimeBuilder("samplePITId"))
             .fetchSource(new String[] {"intA"}, new String[0]),
@@ -548,6 +554,8 @@ class OpenSearchRequestBuilderTest {
                 .from(DEFAULT_OFFSET)
                 .size(MAX_RESULT_WINDOW)
                 .timeout(DEFAULT_QUERY_TIMEOUT)
+                .sort(DOC_FIELD_NAME, ASC)
+                .sort(SortBuilders.shardDocSort())
                 .sort(DOC_FIELD_NAME, ASC)
                 .sort(METADATA_FIELD_ID, ASC)
                 .pointInTimeBuilder(new PointInTimeBuilder("samplePITId"))

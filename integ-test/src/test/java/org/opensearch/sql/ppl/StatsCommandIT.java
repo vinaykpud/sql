@@ -609,6 +609,26 @@ public class StatsCommandIT extends PPLIntegTestCase {
   }
 
   @Test
+  public void testStatsPercentileWithMin() throws IOException {
+    JSONObject response =
+        executeQuery(
+            String.format(
+                "source=%s | eval decimal=ceil(balance/100000.0) | stats percentile(decimal, 50),"
+                    + " min(decimal)",
+                TEST_INDEX_BANK));
+    String returnType = "bigint";
+    if (isCalciteEnabled()) {
+      returnType = "double";
+    }
+
+    verifySchema(
+        response,
+        schema("percentile(decimal, 50)", null, returnType),
+        schema("min(decimal)", null, returnType));
+    verifyDataRows(response, rows(1, 1));
+  }
+
+  @Test
   public void testStatsPercentileWithNull() throws IOException {
     JSONObject response =
         executeQuery(
@@ -763,5 +783,27 @@ public class StatsCommandIT extends PPLIntegTestCase {
         response,
         rows(493, 493, 493, 493, 493, 493, 493, "F"),
         rows(507, 507, 507, 507, 507, 507, 507, "M"));
+  }
+
+  @Test
+  public void testStatsByDependentGroupFields() throws IOException {
+    JSONObject response =
+        executeQuery(
+            String.format(
+                "source=%s"
+                    + "| eval age1 = age * 10, age2 = age + 10, age3 = 10"
+                    + "| stats count() as cnt by age1, age2, age3, age"
+                    + "| sort - cnt"
+                    + "| head 3",
+                TEST_INDEX_ACCOUNT));
+    verifySchema(
+        response,
+        schema("cnt", null, "bigint"),
+        schema("age1", null, "bigint"),
+        schema("age2", null, "bigint"),
+        schema("age3", null, "int"),
+        schema("age", null, "bigint"));
+    verifyDataRows(
+        response, rows(61, 310, 41, 10, 31), rows(60, 390, 49, 10, 39), rows(59, 260, 36, 10, 26));
   }
 }

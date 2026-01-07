@@ -31,14 +31,16 @@ import org.opensearch.sql.common.setting.Settings;
 import org.opensearch.sql.common.setting.Settings.Key;
 import org.opensearch.sql.legacy.SQLIntegTestCase;
 import org.opensearch.sql.util.RetryProcessor;
-import org.opensearch.sql.utils.YamlFormatter;
 
 /** OpenSearch Rest integration test base for PPL testing. */
 public abstract class PPLIntegTestCase extends SQLIntegTestCase {
   private static final String EXTENDED_EXPLAIN_API_ENDPOINT =
       "/_plugins/_ppl/_explain?format=extended";
+  private static final String YAML_EXPLAIN_API_ENDPOINT = "/_plugins/_ppl/_explain?format=yaml";
   private static final Logger LOG = LogManager.getLogger();
   @Rule public final RetryProcessor retryProcessor = new RetryProcessor();
+  public static final Integer DEFAULT_SUBSEARCH_MAXOUT = 10000;
+  public static final Integer DEFAULT_JOIN_SUBSEARCH_MAXOUT = 50000;
 
   @Override
   protected void init() throws Exception {
@@ -48,7 +50,28 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
   }
 
   protected JSONObject executeQuery(String query) throws IOException {
-    return jsonify(executeQueryToString(query));
+    String text = executeQueryToString(query);
+    if (text == null) return null;
+    return jsonify(text);
+  }
+
+  private String executeQuery(MapBuilder<Integer, Boolean> resultMap, Integer key, String ppl) throws IOException {
+    Response response;
+    try {
+      response = client().performRequest(buildRequest(ppl, QUERY_API_ENDPOINT));
+    } catch (IOException e) {
+      resultMap.put(key, false);
+      return "";
+    }
+    int statusCode = response.getStatusLine().getStatusCode();
+    if (statusCode != 200) {
+      resultMap.put(key, false);
+    } else {
+      resultMap.put(key, true);
+    }
+    String responseBody = getResponseBody(response, true);
+    logger.info("Response {}", responseBody);
+    return responseBody;
   }
 
   protected String executeQueryToString(String query) throws IOException {
@@ -61,10 +84,11 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
     return explainQueryToString(query, false);
   }
 
-  protected String explainQueryToYaml(String query) throws IOException {
-    String jsonResponse = explainQueryToString(query);
-    JSONObject jsonObject = jsonify(jsonResponse);
-    return YamlFormatter.formatToYaml(jsonObject);
+  protected String explainQueryYaml(String query) throws IOException {
+    Response response = client().performRequest(buildRequest(query, YAML_EXPLAIN_API_ENDPOINT));
+    Assert.assertEquals(200, response.getStatusLine().getStatusCode());
+    String responseBody = getResponseBody(response, true);
+    return responseBody;
   }
 
   protected String explainQueryToString(String query, boolean extended) throws IOException {
@@ -110,11 +134,20 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
 
   protected void timing(MapBuilder<String, Long> builder, String query, String ppl)
       throws IOException {
-    executeQuery(ppl); // warm-up
+//    executeQuery(ppl); // warm-up
     long start = System.currentTimeMillis();
     executeQuery(ppl);
     long duration = System.currentTimeMillis() - start;
     builder.put(query, duration);
+  }
+
+  protected String runQuery(MapBuilder<String, Long> builder, MapBuilder<Integer, Boolean> resultMap, Integer queryNum, String ppl)
+          throws IOException {
+    long start = System.currentTimeMillis();
+    String result = executeQuery(resultMap, queryNum, ppl);
+    long duration = System.currentTimeMillis() - start;
+    builder.put("q" + queryNum, duration);
+    return result;
   }
 
   protected void failWithMessage(String query, String message) {
@@ -334,6 +367,34 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
     }
   }
 
+  protected void setSubsearchMaxOut(Integer limit) throws IOException {
+    updateClusterSettings(
+        new SQLIntegTestCase.ClusterSetting(
+            "transient", Key.PPL_SUBSEARCH_MAXOUT.getKeyValue(), limit.toString()));
+  }
+
+  protected void resetSubsearchMaxOut() throws IOException {
+    updateClusterSettings(
+        new SQLIntegTestCase.ClusterSetting(
+            "transient",
+            Settings.Key.PPL_SUBSEARCH_MAXOUT.getKeyValue(),
+            DEFAULT_SUBSEARCH_MAXOUT.toString()));
+  }
+
+  protected void setJoinSubsearchMaxOut(Integer limit) throws IOException {
+    updateClusterSettings(
+        new SQLIntegTestCase.ClusterSetting(
+            "transient", Key.PPL_JOIN_SUBSEARCH_MAXOUT.getKeyValue(), limit.toString()));
+  }
+
+  protected void resetJoinSubsearchMaxOut() throws IOException {
+    updateClusterSettings(
+        new SQLIntegTestCase.ClusterSetting(
+            "transient",
+            Settings.Key.PPL_JOIN_SUBSEARCH_MAXOUT.getKeyValue(),
+            DEFAULT_JOIN_SUBSEARCH_MAXOUT.toString()));
+  }
+
   /**
    * Sanitizes the PPL query by removing block comments and replacing new lines with spaces.
    *
@@ -360,5 +421,19 @@ public abstract class PPLIntegTestCase extends SQLIntegTestCase {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  protected String loadExpectedPlan(String fileName) throws IOException {
+    String prefix;
+    if (isCalciteEnabled()) {
+      if (isPushdownDisabled()) {
+        prefix = "expectedOutput/calcite_no_pushdown/";
+      } else {
+        prefix = "expectedOutput/calcite/";
+      }
+    } else {
+      prefix = "expectedOutput/ppl/";
+    }
+    return loadFromFile(prefix + fileName);
   }
 }

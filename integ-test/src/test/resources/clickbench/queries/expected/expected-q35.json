@@ -1,0 +1,60 @@
+{
+  "schema": [
+    {
+      "name": "c",
+      "type": "bigint"
+    },
+    {
+      "name": "const",
+      "type": "int"
+    },
+    {
+      "name": "URL",
+      "type": "string"
+    }
+  ],
+  "datarows": [
+    [
+      2,
+      1,
+      "https://www.google.example.com/test"
+    ],
+    [
+      1,
+      1,
+      "https://example.com/about"
+    ],
+    [
+      1,
+      1,
+      "https://example.com/page?ref=google"
+    ],
+    [
+      1,
+      1,
+      "https://example.com/products"
+    ],
+    [
+      1,
+      1,
+      "https://example.com/search"
+    ],
+    [
+      1,
+      1,
+      "https://example.google.org/page"
+    ],
+    [
+      1,
+      1,
+      "https://google.com/maps"
+    ],
+    [
+      1,
+      1,
+      "https://www.google.com/search?q=test"
+    ]
+  ],
+  "total": 8,
+  "size": 8
+}

@@ -261,4 +261,9 @@ public class OpenSearchRestClient implements OpenSearchClient {
           "Error occurred while deleting PIT for internal plugin operation", e);
     }
   }
+
+  @Override
+  public boolean isIndexOptimized(String indexName) {
+    return false;
+  }
 }

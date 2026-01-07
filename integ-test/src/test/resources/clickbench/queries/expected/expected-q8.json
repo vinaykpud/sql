@@ -1,0 +1,28 @@
+{
+  "schema": [
+    {
+      "name": "count()",
+      "type": "bigint"
+    },
+    {
+      "name": "AdvEngineID",
+      "type": "smallint"
+    }
+  ],
+  "datarows": [
+    [
+      3,
+      2
+    ],
+    [
+      1,
+      1
+    ],
+    [
+      1,
+      4
+    ]
+  ],
+  "total": 3,
+  "size": 3
+}

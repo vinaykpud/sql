@@ -143,6 +143,8 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     return convertExprTypeToRelDataType(field, true);
   }
 
+  //TODO I think this should be in the interface/abstract depending on the field type and engine type, basically this will come from mapperservice
+    // Since these fields are UDTs, commented since substrait don't know how to convert these. default making them to BIGINT so that we can bypass these
   /** Converts a OpenSearch ExprCoreType field to relational type. */
   public static RelDataType convertExprTypeToRelDataType(ExprType fieldType, boolean nullable) {
     if (fieldType instanceof ExprCoreType) {
@@ -168,20 +170,23 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
         case BOOLEAN:
           return TYPE_FACTORY.createSqlType(SqlTypeName.BOOLEAN, nullable);
         case DATE:
-          return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+            // default making them to BIGINT so that we can bypass these
+        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+//          return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
         case TIME:
           return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+//            return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
         case TIMESTAMP:
           return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+//          return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
         case ARRAY:
           return TYPE_FACTORY.createArrayType(
               TYPE_FACTORY.createSqlType(SqlTypeName.ANY, nullable), -1);
         case STRUCT:
-          // TODO: should use RelRecordType instead of MapSqlType here
-          // https://github.com/opensearch-project/sql/issues/3459
           final RelDataType relKey = TYPE_FACTORY.createSqlType(SqlTypeName.VARCHAR);
+          // TODO: should we provide more precise type here?
           return TYPE_FACTORY.createMapType(
-              relKey, TYPE_FACTORY.createSqlType(SqlTypeName.BINARY), nullable);
+              relKey, TYPE_FACTORY.createSqlType(SqlTypeName.ANY), nullable);
         case UNKNOWN:
         default:
           throw new IllegalArgumentException(
@@ -189,13 +194,17 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
       }
     } else {
       if (fieldType.legacyTypeName().equalsIgnoreCase("binary")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
+          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
+//        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_BINARY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("timestamp")) {
         return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIMESTAMP, nullable);
+//        return TYPE_FACTORY.createSqlType(SqlTypeName.TIMESTAMP, 3);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("date")) {
-        return TYPE_FACTORY.createUDT(ExprUDT.EXPR_DATE, nullable);
+      return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+//        return TYPE_FACTORY.createSqlType(SqlTypeName.DATE, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("time")) {
         return TYPE_FACTORY.createUDT(ExprUDT.EXPR_TIME, nullable);
+//          return TYPE_FACTORY.createSqlType(SqlTypeName.BIGINT, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("geo_point")) {
         return TYPE_FACTORY.createSqlType(SqlTypeName.GEOMETRY, nullable);
       } else if (fieldType.legacyTypeName().equalsIgnoreCase("text")) {
@@ -311,7 +320,8 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     List<String> fieldNameList = new ArrayList<>();
     List<RelDataType> typeList = new ArrayList<>();
     Map<String, ExprType> fieldTypes = new LinkedHashMap<>(table.getFieldTypes());
-    fieldTypes.putAll(table.getReservedFieldTypes());
+    //reason: We don't need metadata fields in the substrait plan
+//    fieldTypes.putAll(table.getReservedFieldTypes());
     for (Entry<String, ExprType> entry : fieldTypes.entrySet()) {
       fieldNameList.add(entry.getKey());
       typeList.add(OpenSearchTypeFactory.convertExprTypeToRelDataType(entry.getValue()));
@@ -336,5 +346,69 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
    */
   public static boolean isUserDefinedType(RelDataType type) {
     return type instanceof AbstractExprRelDataType<?>;
+  }
+
+  /**
+   * Checks if the RelDataType represents a numeric field. Supports both standard SQL numeric types
+   * (INTEGER, BIGINT, SMALLINT, TINYINT, FLOAT, DOUBLE, DECIMAL, REAL) and OpenSearch UDT numeric
+   * types.
+   *
+   * @param fieldType the RelDataType to check
+   * @return true if the type is numeric, false otherwise
+   */
+  public static boolean isNumericType(RelDataType fieldType) {
+    // Check standard SQL numeric types
+    SqlTypeName sqlType = fieldType.getSqlTypeName();
+    if (sqlType == SqlTypeName.INTEGER
+        || sqlType == SqlTypeName.BIGINT
+        || sqlType == SqlTypeName.SMALLINT
+        || sqlType == SqlTypeName.TINYINT
+        || sqlType == SqlTypeName.FLOAT
+        || sqlType == SqlTypeName.DOUBLE
+        || sqlType == SqlTypeName.DECIMAL
+        || sqlType == SqlTypeName.REAL) {
+      return true;
+    }
+
+    // Check for OpenSearch UDT numeric types
+    if (isUserDefinedType(fieldType)) {
+      AbstractExprRelDataType<?> exprType = (AbstractExprRelDataType<?>) fieldType;
+      ExprType udtType = exprType.getExprType();
+      return ExprCoreType.numberTypes().contains(udtType);
+    }
+
+    return false;
+  }
+
+  /**
+   * Checks if the RelDataType represents a time-based field (timestamp, date, or time). Supports
+   * both standard SQL time types (including TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE, DATE, TIME,
+   * and their timezone variants) and OpenSearch UDT time types.
+   *
+   * @param fieldType the RelDataType to check
+   * @return true if the type is time-based, false otherwise
+   */
+  public static boolean isTimeBasedType(RelDataType fieldType) {
+    // Check standard SQL time types
+    SqlTypeName sqlType = fieldType.getSqlTypeName();
+    if (sqlType == SqlTypeName.TIMESTAMP
+        || sqlType == SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE
+        || sqlType == SqlTypeName.DATE
+        || sqlType == SqlTypeName.TIME
+        || sqlType == SqlTypeName.TIME_WITH_LOCAL_TIME_ZONE) {
+      return true;
+    }
+
+    // Check for OpenSearch UDT types (EXPR_TIMESTAMP mapped to VARCHAR)
+    if (isUserDefinedType(fieldType)) {
+      AbstractExprRelDataType<?> exprType = (AbstractExprRelDataType<?>) fieldType;
+      ExprType udtType = exprType.getExprType();
+      return udtType == ExprCoreType.TIMESTAMP
+          || udtType == ExprCoreType.DATE
+          || udtType == ExprCoreType.TIME;
+    }
+
+    // Fallback check if type string contains EXPR_TIMESTAMP
+    return fieldType.toString().contains("EXPR_TIMESTAMP");
   }
 }
