@@ -6,7 +6,7 @@
 
 buildscript {
     ext {
-        opensearch_version = System.getProperty("opensearch.version", "3.3.0-SNAPSHOT")
+        opensearch_version = System.getProperty("opensearch.version", "3.3.0")
         isSnapshot = "true" == System.getProperty("build.snapshot", "true")
         buildVersionQualifier = System.getProperty("build.version_qualifier", "")
         version_tokens = opensearch_version.tokenize('-')
@@ -162,6 +162,7 @@ allprojects {
         }
         resolutionStrategy.force 'org.apache.calcite.avatica:avatica-core:1.26.0'
         resolutionStrategy.force 'org.slf4j:slf4j-api:2.0.13'
+        resolutionStrategy.force 'com.google.j2objc:j2objc-annotations:3.0.0'
     }
 }
 
