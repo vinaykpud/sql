@@ -323,6 +323,11 @@ public class OpenSearchTypeFactory extends JavaTypeFactoryImpl {
     //reason: We don't need metadata fields in the substrait plan
 //    fieldTypes.putAll(table.getReservedFieldTypes());
     for (Entry<String, ExprType> entry : fieldTypes.entrySet()) {
+      // Skip STRUCT type fields (object fields) as they cannot be queried directly
+      // Only their nested fields (which are already flattened) should be in the schema
+      if (entry.getValue() == ExprCoreType.STRUCT) {
+        continue;
+      }
       fieldNameList.add(entry.getKey());
       typeList.add(OpenSearchTypeFactory.convertExprTypeToRelDataType(entry.getValue()));
     }
