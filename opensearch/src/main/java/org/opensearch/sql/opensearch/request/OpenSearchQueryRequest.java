@@ -5,6 +5,10 @@
 
 package org.opensearch.sql.opensearch.request;
 
+import io.substrait.expression.AggregateFunctionInvocation;
+import io.substrait.expression.Expression;
+import io.substrait.expression.FieldReference;
+import io.substrait.expression.FunctionArg;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.extension.SimpleExtension;
 import io.substrait.isthmus.ImmutableFeatureBoard;
@@ -17,7 +21,9 @@ import io.substrait.isthmus.expression.ScalarFunctionConverter;
 import io.substrait.isthmus.expression.WindowFunctionConverter;
 import io.substrait.plan.Plan;
 import io.substrait.plan.PlanProtoConverter;
+import io.substrait.relation.Aggregate;
 import io.substrait.relation.NamedScan;
+import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
 import io.substrait.relation.RelCopyOnWriteVisitor;
 import io.substrait.type.Type;
@@ -504,6 +510,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // we want to remove "OpenSearch" as table name for now otherwise execution fails in DF
         TableNameModifier modifier = new TableNameModifier();
         Plan modifiedPlan = modifier.modifyTableNames(plan);
+        
+        // Inline Project expressions into Aggregate grouping expressions
+        AggregateProjectInliner inliner = new AggregateProjectInliner();
+        modifiedPlan = inliner.inlineProjections(modifiedPlan);
 
         // Convert to Protocol Buffer format for serialization
         // PlanProtoConverter handles the conversion from Java objects to protobuf
@@ -612,6 +622,147 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 }
 
                 return super.visit(namedScan, context);
+            }
+        }
+    }
+
+    private static class AggregateProjectInliner {
+        public Plan inlineProjections(Plan plan) {
+            ProjectInlineVisitor visitor = new ProjectInlineVisitor();
+            List<Plan.Root> modifiedRoots = new java.util.ArrayList<>();
+
+            for (Plan.Root root : plan.getRoots()) {
+                Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
+                if (modifiedRel.isPresent()) {
+                    modifiedRoots.add(Plan.Root.builder().from(root).input(modifiedRel.get()).build());
+                } else {
+                    modifiedRoots.add(root);
+                }
+            }
+
+            return Plan.builder().from(plan).roots(modifiedRoots).build();
+        }
+
+        private static class ProjectInlineVisitor extends RelCopyOnWriteVisitor<RuntimeException> {
+            @Override
+            public Optional<Rel> visit(Aggregate aggregate, EmptyVisitationContext context) {
+                // Check if input is a Project
+                if (!(aggregate.getInput() instanceof Project)) {
+                    return super.visit(aggregate, context);
+                }
+
+                Project project = (Project) aggregate.getInput();
+                
+                // Skip if no grouping expressions
+                if (aggregate.getGroupings().isEmpty()) {
+                    LOGGER.debug("Skipping inline: aggregate has no grouping expressions");
+                    return super.visit(aggregate, context);
+                }
+                
+                // Skip if project has no computed expressions (only field references)
+                boolean hasComputedExprs = project.getExpressions().stream()
+                    .anyMatch(expr -> !(expr instanceof FieldReference));
+                if (!hasComputedExprs) {
+                    LOGGER.debug("Skipping inline: project has no computed expressions");
+                    return super.visit(aggregate, context);
+                }
+                
+                // Skip if measures reference project's computed fields
+                if (checkMeasuresNeedProject(aggregate, project)) {
+                    LOGGER.debug("Skipping inline: measures reference project's computed fields");
+                    return super.visit(aggregate, context);
+                }
+                
+                LOGGER.debug("Inlining Project into Aggregate");
+                LOGGER.debug("Project expressions: {}", project.getExpressions());
+                LOGGER.debug("Aggregate groupings: {}", aggregate.getGroupings());
+
+                // Recursively process the project's input first
+                Optional<Rel> newInput = project.getInput().accept(this, context);
+                Rel actualInput = newInput.orElse(project.getInput());
+
+                // Inline project expressions into grouping expressions
+                List<Aggregate.Grouping> newGroupings = new java.util.ArrayList<>();
+                for (Aggregate.Grouping grouping : aggregate.getGroupings()) {
+                    List<Expression> inlinedExprs = new java.util.ArrayList<>();
+                    for (Expression expr : grouping.getExpressions()) {
+                        Expression inlined = inlineExpression(expr, project);
+                        inlinedExprs.add(inlined);
+                    }
+                    newGroupings.add(Aggregate.Grouping.builder().addAllExpressions(inlinedExprs).build());
+                }
+
+                LOGGER.debug("Successfully inlined {} grouping expressions", newGroupings.size());
+
+                return Optional.of(
+                    Aggregate.builder()
+                        .input(actualInput)
+                        .addAllGroupings(newGroupings)
+                        .addAllMeasures(aggregate.getMeasures())
+                        .build()
+                );
+            }
+            
+            private boolean checkMeasuresNeedProject(Aggregate aggregate, Project project) {
+                // Check if any measure references a computed field from the project
+                for (Aggregate.Measure measure : aggregate.getMeasures()) {
+                    if (measureReferencesComputedField(measure, project)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            private boolean measureReferencesComputedField(Aggregate.Measure measure, Project project) {
+                // Check if measure's arguments reference any computed expressions in project
+                AggregateFunctionInvocation invocation = measure.getFunction();
+                for (FunctionArg arg : invocation.arguments()) {
+                    if (arg instanceof FieldReference) {
+                        int index = getFieldReferenceIndex((FieldReference) arg);
+                        if (index >= 0 && index < project.getExpressions().size()) {
+                            Expression projectExpr = project.getExpressions().get(index);
+                            if (!(projectExpr instanceof FieldReference)) {
+                                return true; // References a computed field
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            private Expression inlineExpression(Expression expr, Project project) {
+                if (!(expr instanceof FieldReference)) {
+                    return expr;
+                }
+                
+                FieldReference fieldRef = (FieldReference) expr;
+                
+                if (!fieldRef.isSimpleRootReference()) {
+                    return expr;
+                }
+                
+                int index = getFieldReferenceIndex(fieldRef);
+                if (index >= 0 && index < project.getExpressions().size()) {
+                    LOGGER.debug("Inlining field reference {} with project expression: {}", 
+                        index, project.getExpressions().get(index));
+                    return project.getExpressions().get(index);
+                }
+                
+                return expr;
+            }
+
+            private int getFieldReferenceIndex(FieldReference fieldRef) {
+                try {
+                    if (fieldRef.segments().size() == 1) {
+                        var segment = fieldRef.segments().get(0);
+                        if (segment instanceof FieldReference.StructField) {
+                            return ((FieldReference.StructField) segment).offset();
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to extract field index from FieldReference", e);
+                }
+                return -1;
             }
         }
     }
