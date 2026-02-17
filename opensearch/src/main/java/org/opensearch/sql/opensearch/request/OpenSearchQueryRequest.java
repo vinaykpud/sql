@@ -75,6 +75,7 @@ import org.opensearch.search.SearchModule;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.sql.calcite.CalcitePlanContext;
 import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
 import org.opensearch.sql.calcite.type.ExprIPType;
 import org.opensearch.sql.calcite.type.ExprSqlType;
@@ -526,14 +527,16 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
-      //Mapping of Function names in Calcite to Substrait
+        //Mapping of Function names in Calcite to Substrait
+        boolean legacyPreferred = CalcitePlanContext.isLegacyPreferred();
+
         List<FunctionMappings.Sig> customSigs = List.of(
                 new FunctionMappings.Sig(SqlStdOperatorTable.MIN, "min"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "date_part"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "date_format"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "date_format"),
                 new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace"),
-                new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, "like")
+                new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, legacyPreferred ? "ilike" : "like")
         );
 
         TypeConverter typeConverter = new TypeConverter(
@@ -991,9 +994,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             if (operands.size() >= 2) {
                 RexNode field = operands.get(0);
                 RexNode pattern = operands.get(1);
-                RexNode upperField = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, field);
-                RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
-                return rexBuilder.makeCall(rexCall.getOperator(), upperField, upperPattern);
+                return rexBuilder.makeCall(rexCall.getOperator(), field, pattern);
             }
         }
 
