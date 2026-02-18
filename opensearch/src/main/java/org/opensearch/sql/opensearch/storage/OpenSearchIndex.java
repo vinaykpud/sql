@@ -280,4 +280,8 @@ public class OpenSearchIndex extends AbstractOpenSearchTable {
     return requestBuilder.build(
         indexName, cursorKeepAlive, client, cachedFieldOpenSearchTypes.isEmpty());
   }
+
+  public boolean isIndexOptimized() {
+    return client.isIndexOptimized(indexName.toString());
+  }
 }
