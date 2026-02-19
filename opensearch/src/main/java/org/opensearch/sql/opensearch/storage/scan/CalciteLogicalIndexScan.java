@@ -140,6 +140,10 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       planner.addRule(OpenSearchIndexRules.RELEVANCE_FUNCTION_PUSHDOWN);
     }
 
+    // remove this rule otherwise opensearch can't correctly interpret approx_count_distinct()
+    // it is converted to cardinality aggregation in OpenSearch
+    planner.removeRule(CoreRules.AGGREGATE_EXPAND_DISTINCT_AGGREGATES);
+
     // Remove FILTER_REDUCE_EXPRESSIONS rule to prevent conversion of range comparisons to SEARCH
     // This is needed for Substrait compatibility which doesn't support SEARCH operations
     planner.removeRule(CoreRules.FILTER_REDUCE_EXPRESSIONS);
