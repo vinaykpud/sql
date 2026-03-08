@@ -84,13 +84,11 @@ import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.PPLBuiltinOperators;
-import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
 import org.opensearch.sql.opensearch.client.OpenSearchClient;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
-import org.opensearch.sql.opensearch.storage.scan.CalciteLogicalIndexScan;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -591,7 +589,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             TableNameVisitor visitor = new TableNameVisitor();
 
             // Transform each root in the plan
-            List<Plan.Root> modifiedRoots = new java.util.ArrayList<>();
+            List<Plan.Root> modifiedRoots = new ArrayList<>();
 
             for (Plan.Root root : plan.getRoots()) {
                 Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
@@ -613,7 +611,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 // Filter out names that contain "OpenSearch"
                 List<String> filteredNames = currentNames.stream()
                     .filter(name -> !name.contains("OpenSearch"))
-                    .collect(java.util.stream.Collectors.toList());
+                    .collect(Collectors.toList());
 
                 // Only create a new NamedScan if names were actually filtered
                 if (filteredNames.size() != currentNames.size() && !filteredNames.isEmpty()) {
@@ -632,7 +630,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     private static class AggregateProjectInliner {
         public Plan inlineProjections(Plan plan) {
             ProjectInlineVisitor visitor = new ProjectInlineVisitor();
-            List<Plan.Root> modifiedRoots = new java.util.ArrayList<>();
+            List<Plan.Root> modifiedRoots = new ArrayList<>();
 
             for (Plan.Root root : plan.getRoots()) {
                 Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
@@ -650,12 +648,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             @Override
             public Optional<Rel> visit(Aggregate aggregate, EmptyVisitationContext context) {
                 // Check if input is a Project
-                if (!(aggregate.getInput() instanceof Project)) {
+                if (!(aggregate.getInput() instanceof Project project)) {
                     return super.visit(aggregate, context);
                 }
 
-                Project project = (Project) aggregate.getInput();
-                
                 // Skip if no grouping expressions
                 if (aggregate.getGroupings().isEmpty()) {
                     LOGGER.debug("Skipping inline: aggregate has no grouping expressions");
@@ -685,9 +681,9 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 Rel actualInput = newInput.orElse(project.getInput());
 
                 // Inline project expressions into grouping expressions
-                List<Aggregate.Grouping> newGroupings = new java.util.ArrayList<>();
+                List<Aggregate.Grouping> newGroupings = new ArrayList<>();
                 for (Aggregate.Grouping grouping : aggregate.getGroupings()) {
-                    List<Expression> inlinedExprs = new java.util.ArrayList<>();
+                    List<Expression> inlinedExprs = new ArrayList<>();
                     for (Expression expr : grouping.getExpressions()) {
                         Expression inlined = inlineExpression(expr, project);
                         inlinedExprs.add(inlined);
@@ -757,7 +753,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             private int getFieldReferenceIndex(FieldReference fieldRef) {
                 try {
                     if (fieldRef.segments().size() == 1) {
-                        var segment = fieldRef.segments().get(0);
+                        var segment = fieldRef.segments().getFirst();
                         if (segment instanceof FieldReference.StructField) {
                             return ((FieldReference.StructField) segment).offset();
                         }
