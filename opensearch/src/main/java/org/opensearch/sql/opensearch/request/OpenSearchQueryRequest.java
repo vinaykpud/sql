@@ -5,6 +5,10 @@
 
 package org.opensearch.sql.opensearch.request;
 
+import io.substrait.expression.AggregateFunctionInvocation;
+import io.substrait.expression.Expression;
+import io.substrait.expression.FieldReference;
+import io.substrait.expression.FunctionArg;
 import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.extension.SimpleExtension;
 import io.substrait.isthmus.ImmutableFeatureBoard;
@@ -17,7 +21,9 @@ import io.substrait.isthmus.expression.ScalarFunctionConverter;
 import io.substrait.isthmus.expression.WindowFunctionConverter;
 import io.substrait.plan.Plan;
 import io.substrait.plan.PlanProtoConverter;
+import io.substrait.relation.Aggregate;
 import io.substrait.relation.NamedScan;
+import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
 import io.substrait.relation.RelCopyOnWriteVisitor;
 import io.substrait.type.Type;
@@ -69,6 +75,7 @@ import org.opensearch.search.SearchModule;
 import org.opensearch.search.builder.PointInTimeBuilder;
 import org.opensearch.search.builder.SearchSourceBuilder;
 import org.opensearch.search.sort.FieldSortBuilder;
+import org.opensearch.sql.calcite.CalcitePlanContext;
 import org.opensearch.sql.calcite.plan.LogicalSystemLimit;
 import org.opensearch.sql.calcite.type.ExprIPType;
 import org.opensearch.sql.calcite.type.ExprSqlType;
@@ -77,13 +84,11 @@ import org.opensearch.sql.calcite.utils.OpenSearchTypeFactory;
 import org.opensearch.sql.executor.OpenSearchTypeSystem;
 import org.opensearch.sql.expression.function.BuiltinFunctionName;
 import org.opensearch.sql.expression.function.PPLBuiltinOperators;
-import org.opensearch.sql.expression.function.udf.datetime.ExtractFunction;
 import org.opensearch.sql.opensearch.client.OpenSearchClient;
 import org.opensearch.sql.opensearch.data.value.OpenSearchExprValueFactory;
 import org.opensearch.sql.opensearch.response.OpenSearchResponse;
 import org.opensearch.sql.opensearch.storage.OpenSearchIndex;
 import org.opensearch.sql.opensearch.storage.OpenSearchStorageEngine;
-import org.opensearch.sql.opensearch.storage.scan.CalciteLogicalIndexScan;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -504,6 +509,10 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
         // we want to remove "OpenSearch" as table name for now otherwise execution fails in DF
         TableNameModifier modifier = new TableNameModifier();
         Plan modifiedPlan = modifier.modifyTableNames(plan);
+        
+        // Inline Project expressions into Aggregate grouping expressions
+        AggregateProjectInliner inliner = new AggregateProjectInliner();
+        modifiedPlan = inliner.inlineProjections(modifiedPlan);
 
         // Convert to Protocol Buffer format for serialization
         // PlanProtoConverter handles the conversion from Java objects to protobuf
@@ -516,14 +525,16 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
     }
 
     private static SubstraitRelVisitor createVisitor(RelNode relNode) {
-      //Mapping of Function names in Calcite to Substrait
+        //Mapping of Function names in Calcite to Substrait
+        boolean legacyPreferred = CalcitePlanContext.isLegacyPreferred();
+
         List<FunctionMappings.Sig> customSigs = List.of(
                 new FunctionMappings.Sig(SqlStdOperatorTable.MIN, "min"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.EXTRACT, "date_part"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.STRFTIME, "date_format"),
                 new FunctionMappings.Sig(PPLBuiltinOperators.DATE_FORMAT, "date_format"),
                 new FunctionMappings.Sig(REGEXP_REPLACE_3, "regexp_replace"),
-                new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, "like")
+                new FunctionMappings.Sig(SqlLibraryOperators.ILIKE, legacyPreferred ? "ilike" : "like")
         );
 
         TypeConverter typeConverter = new TypeConverter(
@@ -578,7 +589,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             TableNameVisitor visitor = new TableNameVisitor();
 
             // Transform each root in the plan
-            List<Plan.Root> modifiedRoots = new java.util.ArrayList<>();
+            List<Plan.Root> modifiedRoots = new ArrayList<>();
 
             for (Plan.Root root : plan.getRoots()) {
                 Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
@@ -600,7 +611,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 // Filter out names that contain "OpenSearch"
                 List<String> filteredNames = currentNames.stream()
                     .filter(name -> !name.contains("OpenSearch"))
-                    .collect(java.util.stream.Collectors.toList());
+                    .collect(Collectors.toList());
 
                 // Only create a new NamedScan if names were actually filtered
                 if (filteredNames.size() != currentNames.size() && !filteredNames.isEmpty()) {
@@ -612,6 +623,145 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
                 }
 
                 return super.visit(namedScan, context);
+            }
+        }
+    }
+
+    private static class AggregateProjectInliner {
+        public Plan inlineProjections(Plan plan) {
+            ProjectInlineVisitor visitor = new ProjectInlineVisitor();
+            List<Plan.Root> modifiedRoots = new ArrayList<>();
+
+            for (Plan.Root root : plan.getRoots()) {
+                Optional<Rel> modifiedRel = root.getInput().accept(visitor, null);
+                if (modifiedRel.isPresent()) {
+                    modifiedRoots.add(Plan.Root.builder().from(root).input(modifiedRel.get()).build());
+                } else {
+                    modifiedRoots.add(root);
+                }
+            }
+
+            return Plan.builder().from(plan).roots(modifiedRoots).build();
+        }
+
+        private static class ProjectInlineVisitor extends RelCopyOnWriteVisitor<RuntimeException> {
+            @Override
+            public Optional<Rel> visit(Aggregate aggregate, EmptyVisitationContext context) {
+                // Check if input is a Project
+                if (!(aggregate.getInput() instanceof Project project)) {
+                    return super.visit(aggregate, context);
+                }
+
+                // Skip if no grouping expressions
+                if (aggregate.getGroupings().isEmpty()) {
+                    LOGGER.debug("Skipping inline: aggregate has no grouping expressions");
+                    return super.visit(aggregate, context);
+                }
+                
+                // Skip if project has no computed expressions (only field references)
+                boolean hasComputedExprs = project.getExpressions().stream()
+                    .anyMatch(expr -> !(expr instanceof FieldReference));
+                if (!hasComputedExprs) {
+                    LOGGER.debug("Skipping inline: project has no computed expressions");
+                    return super.visit(aggregate, context);
+                }
+                
+                // Skip if measures reference project's computed fields
+                if (checkMeasuresNeedProject(aggregate, project)) {
+                    LOGGER.debug("Skipping inline: measures reference project's computed fields");
+                    return super.visit(aggregate, context);
+                }
+                
+                LOGGER.debug("Inlining Project into Aggregate");
+                LOGGER.debug("Project expressions: {}", project.getExpressions());
+                LOGGER.debug("Aggregate groupings: {}", aggregate.getGroupings());
+
+                // Recursively process the project's input first
+                Optional<Rel> newInput = project.getInput().accept(this, context);
+                Rel actualInput = newInput.orElse(project.getInput());
+
+                // Inline project expressions into grouping expressions
+                List<Aggregate.Grouping> newGroupings = new ArrayList<>();
+                for (Aggregate.Grouping grouping : aggregate.getGroupings()) {
+                    List<Expression> inlinedExprs = new ArrayList<>();
+                    for (Expression expr : grouping.getExpressions()) {
+                        Expression inlined = inlineExpression(expr, project);
+                        inlinedExprs.add(inlined);
+                    }
+                    newGroupings.add(Aggregate.Grouping.builder().addAllExpressions(inlinedExprs).build());
+                }
+
+                LOGGER.debug("Successfully inlined {} grouping expressions", newGroupings.size());
+
+                return Optional.of(
+                    Aggregate.builder()
+                        .input(actualInput)
+                        .addAllGroupings(newGroupings)
+                        .addAllMeasures(aggregate.getMeasures())
+                        .build()
+                );
+            }
+            
+            private boolean checkMeasuresNeedProject(Aggregate aggregate, Project project) {
+                // Check if any measure references a computed field from the project
+                for (Aggregate.Measure measure : aggregate.getMeasures()) {
+                    if (measureReferencesComputedField(measure, project)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            
+            private boolean measureReferencesComputedField(Aggregate.Measure measure, Project project) {
+                // Check if measure's arguments reference any computed expressions in project
+                AggregateFunctionInvocation invocation = measure.getFunction();
+                for (FunctionArg arg : invocation.arguments()) {
+                    if (arg instanceof FieldReference) {
+                        int index = getFieldReferenceIndex((FieldReference) arg);
+                        if (index >= 0 && index < project.getExpressions().size()) {
+                            Expression projectExpr = project.getExpressions().get(index);
+                            if (!(projectExpr instanceof FieldReference)) {
+                                return true; // References a computed field
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            private Expression inlineExpression(Expression expr, Project project) {
+                if (!(expr instanceof FieldReference)) {
+                    return expr;
+                }
+                
+                FieldReference fieldRef = (FieldReference) expr;
+                
+                if (!fieldRef.isSimpleRootReference()) {
+                    return expr;
+                }
+                
+                int index = getFieldReferenceIndex(fieldRef);
+                if (index >= 0 && index < project.getExpressions().size()) {
+                    LOGGER.debug("Inlining field reference {} with project expression: {}", 
+                        index, project.getExpressions().get(index));
+                    return project.getExpressions().get(index);
+                }
+                
+                return expr;
+            }
+
+            private int getFieldReferenceIndex(FieldReference fieldRef) {
+                try {
+                    if (fieldRef.segments().size() == 1) {
+                        var segment = fieldRef.segments().getFirst();
+                        if (segment instanceof FieldReference.StructField) {
+                            return ((FieldReference.StructField) segment).offset();
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to extract field index from FieldReference", e);
+                }
+                return -1;
             }
         }
     }
@@ -840,9 +990,7 @@ public class OpenSearchQueryRequest implements OpenSearchRequest {
             if (operands.size() >= 2) {
                 RexNode field = operands.get(0);
                 RexNode pattern = operands.get(1);
-                RexNode upperField = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, field);
-                RexNode upperPattern = rexBuilder.makeCall(SqlStdOperatorTable.UPPER, pattern);
-                return rexBuilder.makeCall(rexCall.getOperator(), upperField, upperPattern);
+                return rexBuilder.makeCall(rexCall.getOperator(), field, pattern);
             }
         }
 

@@ -20,6 +20,15 @@ scalar_functions:
           - name: timestamp
             value: precision_timestamp<P>
         return: i64
+  - name: ilike
+    description: Case-insensitive pattern matching
+    impls:
+      - args:
+          - name: input
+            value: string
+          - name: pattern
+            value: string
+        return: boolean
 
 aggregate_functions:
   - name: min

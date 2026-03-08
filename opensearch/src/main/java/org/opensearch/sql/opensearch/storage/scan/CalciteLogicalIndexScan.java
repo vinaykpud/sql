@@ -431,8 +431,12 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
       if (pushDownContext.isAggregatePushed()) {
         // Push down the limit into the aggregation bucket in advance to detect whether the limit
         // can update the aggregation builder
+        // When index.optimized.enabled=true, only push down limit (not limit+offset)
+        // since DataFusion handles offset
+        boolean isOptimized = osIndex.isIndexOptimized();
+        int bucketSize = isOptimized ? limit : (limit + offset);
         boolean updated =
-            pushDownContext.getAggPushDownAction().pushDownLimitIntoBucketSize(limit + offset);
+            pushDownContext.getAggPushDownAction().pushDownLimitIntoBucketSize(bucketSize);
         if (!updated && offset > 0) return null;
         CalciteLogicalIndexScan newScan = this.copyWithNewSchema(getRowType());
         // Simplify the action if it doesn't update the aggregation builder, otherwise keep the
@@ -440,10 +444,12 @@ public class CalciteLogicalIndexScan extends AbstractCalciteIndexScan {
         // It won't change the aggregation builder by do this action again since it's idempotent
         AggregationBuilderAction action =
             updated
-                ? aggAction -> aggAction.pushDownLimitIntoBucketSize(limit + offset)
+                ? aggAction -> aggAction.pushDownLimitIntoBucketSize(bucketSize)
                 : aggAction -> {};
         newScan.pushDownContext.add(PushDownType.LIMIT, new LimitDigest(limit, offset), action, sort);
-        return offset > 0 ? sort.copy(sort.getTraitSet(), List.of(newScan)) : newScan;
+        // When index.optimized.enabled=true, return newScan directly so DataFusion handles sort+offset
+        // Otherwise keep Sort in Calcite plan for backward compatibility
+        return isOptimized ? newScan : (offset > 0 ? sort.copy(sort.getTraitSet(), List.of(newScan)) : newScan);
       } else {
         CalciteLogicalIndexScan newScan = this.copyWithNewSchema(getRowType());
         newScan.pushDownContext.add(
