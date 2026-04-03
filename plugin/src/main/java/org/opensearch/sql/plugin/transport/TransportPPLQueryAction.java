@@ -29,6 +29,7 @@ import org.opensearch.sql.datasource.DataSourceService;
 import org.opensearch.sql.datasources.service.DataSourceServiceImpl;
 import org.opensearch.sql.executor.ExecutionEngine;
 import org.opensearch.sql.executor.QueryType;
+import org.opensearch.sql.executor.analytics.QueryPlanExecutor;
 import org.opensearch.sql.legacy.metrics.MetricName;
 import org.opensearch.sql.legacy.metrics.Metrics;
 import org.opensearch.sql.monitor.profile.QueryProfiling;
@@ -36,6 +37,7 @@ import org.opensearch.sql.opensearch.executor.OpenSearchQueryManager;
 import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
 import org.opensearch.sql.plugin.config.OpenSearchPluginModule;
 import org.opensearch.sql.plugin.rest.RestUnifiedQueryAction;
+import org.opensearch.analytics.AnalyticsEngineService;
 import org.opensearch.sql.plugin.rest.analytics.stub.StubQueryPlanExecutor;
 import org.opensearch.sql.ppl.PPLService;
 import org.opensearch.sql.ppl.domain.PPLQueryRequest;
@@ -83,7 +85,7 @@ public class TransportPPLQueryAction
           b.bind(DataSourceService.class).toInstance(dataSourceService);
         });
     this.injector = Guice.createInjector(modules);
-    this.unifiedQueryHandler = new RestUnifiedQueryAction(client, new StubQueryPlanExecutor());
+    this.unifiedQueryHandler = new RestUnifiedQueryAction(client, resolveAnalyticsExecutor());
     this.pplEnabled =
         () ->
             MULTI_ALLOW_EXPLICIT_INDEX.get(clusterSettings)
@@ -238,6 +240,20 @@ public class TransportPPLQueryAction
       throw new IllegalArgumentException(
           String.format(Locale.ROOT, "response in %s format is not supported.", format));
     }
+  }
+
+  /**
+   * Resolves the analytics engine executor. If the analytics-engine plugin is installed,
+   * adapts the real executor to the SQL plugin's QueryPlanExecutor interface.
+   * Otherwise falls back to StubQueryPlanExecutor.
+   */
+  private static QueryPlanExecutor resolveAnalyticsExecutor() {
+    AnalyticsEngineService svc = AnalyticsEngineService.getInstance();
+    if (svc != null && svc.getPlanExecutor() != null) {
+      var realExecutor = svc.getPlanExecutor();
+      return realExecutor::execute;
+    }
+    return new StubQueryPlanExecutor();
   }
 
   private ActionListener<TransportPPLQueryResponse> wrapWithProfilingClear(

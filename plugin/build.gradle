@@ -55,7 +55,7 @@ opensearchplugin {
     name 'opensearch-sql'
     description 'OpenSearch SQL'
     classname 'org.opensearch.sql.plugin.SQLPlugin'
-    extendedPlugins = ['opensearch-job-scheduler']
+    extendedPlugins = ['opensearch-job-scheduler', 'analytics-engine;optional=true']
     licenseFile rootProject.file("LICENSE.txt")
     noticeFile rootProject.file("NOTICE")
 }
@@ -168,6 +168,11 @@ dependencies {
     api project(':async-query')
     api project(':direct-query')
 
+    // Analytics framework — provides AnalyticsEngineService, QueryPlanExecutor, EngineContext
+    compileOnly "org.opensearch.sandbox:analytics-framework:${opensearch_version}"
+
+
+
     testImplementation group: 'net.bytebuddy', name: 'byte-buddy-agent', version: '1.15.11'
     testImplementation group: 'org.hamcrest', name: 'hamcrest-library', version: "${hamcrest_version}"
     testImplementation group: 'org.mockito', name: 'mockito-core', version: "${versions.mockito}"
@@ -229,6 +234,7 @@ testingConventions.enabled = false
 thirdPartyAudit.enabled = false
 apply plugin: 'com.netflix.nebula.ospackage'
 validateNebulaPom.enabled = false
+
 // This is afterEvaluate because the bundlePlugin ZIP task is updated afterEvaluate and changes the ZIP name to match the plugin name
 afterEvaluate {
     ospackage {

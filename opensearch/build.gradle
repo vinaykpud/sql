@@ -39,8 +39,8 @@ dependencies {
     implementation group: 'com.fasterxml.jackson.dataformat', name: 'jackson-dataformat-cbor', version: "${versions.jackson}"
     implementation group: 'org.json', name: 'json', version:'20231013'
     compileOnly group: 'org.opensearch.client', name: 'opensearch-rest-high-level-client', version: "${opensearch_version}"
-    implementation group: 'org.opensearch', name:'opensearch-ml-client', version: "${opensearch_build}"
-    implementation group: 'org.opensearch', name:'geospatial-client', version: "${opensearch_build}"
+    implementation group: 'org.opensearch', name:'opensearch-ml-client', version: "3.6.0.0-SNAPSHOT"
+    implementation group: 'org.opensearch', name:'geospatial-client', version: "3.6.0.0-SNAPSHOT"
 
     annotationProcessor 'org.immutables:value:2.8.8'
     compileOnly 'org.immutables:value-annotations:2.8.8'
