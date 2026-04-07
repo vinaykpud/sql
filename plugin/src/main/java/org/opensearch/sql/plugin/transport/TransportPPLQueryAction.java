@@ -13,6 +13,8 @@ import static org.opensearch.sql.protocol.response.format.JsonResponseFormatter.
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Supplier;
+
+import org.apache.calcite.schema.Schema;
 import org.opensearch.action.ActionRequest;
 import org.opensearch.action.support.ActionFilters;
 import org.opensearch.action.support.HandledTransportAction;
@@ -38,7 +40,9 @@ import org.opensearch.sql.opensearch.setting.OpenSearchSettings;
 import org.opensearch.sql.plugin.config.OpenSearchPluginModule;
 import org.opensearch.sql.plugin.rest.RestUnifiedQueryAction;
 import org.opensearch.analytics.AnalyticsEngineService;
+import org.opensearch.analytics.EngineContext;
 import org.opensearch.sql.plugin.rest.analytics.stub.StubQueryPlanExecutor;
+import org.opensearch.sql.plugin.rest.analytics.stub.StubSchemaProvider;
 import org.opensearch.sql.ppl.PPLService;
 import org.opensearch.sql.ppl.domain.PPLQueryRequest;
 import org.opensearch.sql.protocol.response.QueryResult;
@@ -57,6 +61,9 @@ import org.opensearch.transport.client.node.NodeClient;
 /** Send PPL query transport action. */
 public class TransportPPLQueryAction
     extends HandledTransportAction<ActionRequest, TransportPPLQueryResponse> {
+
+  private static final org.apache.logging.log4j.Logger LOG =
+      org.apache.logging.log4j.LogManager.getLogger(TransportPPLQueryAction.class);
 
   private final Injector injector;
 
@@ -85,7 +92,10 @@ public class TransportPPLQueryAction
           b.bind(DataSourceService.class).toInstance(dataSourceService);
         });
     this.injector = Guice.createInjector(modules);
-    this.unifiedQueryHandler = new RestUnifiedQueryAction(client, resolveAnalyticsExecutor());
+    AnalyticsEngineService svc = AnalyticsEngineService.getInstance();
+    this.unifiedQueryHandler =
+        new RestUnifiedQueryAction(
+            client, resolveAnalyticsExecutor(svc), resolveSchemaSupplier(svc));
     this.pplEnabled =
         () ->
             MULTI_ALLOW_EXPLICIT_INDEX.get(clusterSettings)
@@ -247,13 +257,26 @@ public class TransportPPLQueryAction
    * adapts the real executor to the SQL plugin's QueryPlanExecutor interface.
    * Otherwise falls back to StubQueryPlanExecutor.
    */
-  private static QueryPlanExecutor resolveAnalyticsExecutor() {
-    AnalyticsEngineService svc = AnalyticsEngineService.getInstance();
+  private static QueryPlanExecutor resolveAnalyticsExecutor(AnalyticsEngineService svc) {
     if (svc != null && svc.getPlanExecutor() != null) {
       var realExecutor = svc.getPlanExecutor();
       return realExecutor::execute;
     }
     return new StubQueryPlanExecutor();
+  }
+
+  /**
+   * Resolves the schema supplier from the analytics engine. If the analytics-engine plugin is
+   * installed, delegates to {@link EngineContext#getSchema()} which builds the schema from cluster
+   * state. Otherwise falls back to {@link StubSchemaProvider#buildSchema()}.
+   */
+  private static Supplier<Schema> resolveSchemaSupplier(
+      AnalyticsEngineService svc) {
+    if (svc != null && svc.getEngineContext() != null) {
+      EngineContext engineContext = svc.getEngineContext();
+      return engineContext::getSchema;
+    }
+    return StubSchemaProvider::buildSchema;
   }
 
   private ActionListener<TransportPPLQueryResponse> wrapWithProfilingClear(

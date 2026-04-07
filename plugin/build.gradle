@@ -120,6 +120,8 @@ configurations.all {
     resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.10"
     resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10"
     resolutionStrategy.force "org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10"
+    resolutionStrategy.force "org.codehaus.janino:janino:3.1.12"
+    resolutionStrategy.force "org.codehaus.janino:commons-compiler:3.1.12"
 }
 
 configurations {

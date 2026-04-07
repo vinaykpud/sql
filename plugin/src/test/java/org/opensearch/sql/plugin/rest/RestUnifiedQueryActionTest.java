@@ -25,7 +25,9 @@ public class RestUnifiedQueryActionTest {
 
   @Before
   public void setUp() {
-    action = new RestUnifiedQueryAction(mock(NodeClient.class), mock(QueryPlanExecutor.class));
+    action =
+        new RestUnifiedQueryAction(
+            mock(NodeClient.class), mock(QueryPlanExecutor.class), () -> null);
   }
 
   @Test

@@ -111,6 +111,13 @@ public class AnalyticsExecutionEngine implements ExecutionEngine {
       for (int i = 0; i < fields.size(); i++) {
         String columnName = fields.get(i).getName();
         Object value = (i < row.length) ? row[i] : null;
+        // The Object[] rows returned from the analytics engine contain Arrow vector
+        // Java objects (e.g., Arrow Text instead of String). These need to be converted
+        // to standard Java types before passing to fromObjectValue().
+        // TODO: add explicit conversion for date/time/binary Arrow types
+        if (value != null && !(value instanceof Number) && !(value instanceof Boolean) && !(value instanceof String)) {
+          value = value.toString();
+        }
         valueMap.put(columnName, ExprValueUtils.fromObjectValue(value));
       }
       results.add(ExprTupleValue.fromExprValueMap(valueMap));

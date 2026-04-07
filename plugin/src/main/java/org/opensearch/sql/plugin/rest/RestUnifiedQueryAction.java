@@ -11,8 +11,9 @@ import static org.opensearch.sql.opensearch.executor.OpenSearchQueryManager.SQL_
 import static org.opensearch.sql.protocol.response.format.JsonResponseFormatter.Style.PRETTY;
 
 import java.util.Map;
+import java.util.function.Supplier;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.schema.impl.AbstractSchema;
+import org.apache.calcite.schema.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
@@ -31,7 +32,6 @@ import org.opensearch.sql.executor.QueryType;
 import org.opensearch.sql.executor.analytics.AnalyticsExecutionEngine;
 import org.opensearch.sql.executor.analytics.QueryPlanExecutor;
 import org.opensearch.sql.lang.LangSpec;
-import org.opensearch.sql.plugin.rest.analytics.stub.StubSchemaProvider;
 import org.opensearch.sql.plugin.transport.TransportPPLQueryResponse;
 import org.opensearch.sql.ppl.domain.PPLQueryRequest;
 import org.opensearch.sql.protocol.response.QueryResult;
@@ -51,10 +51,13 @@ public class RestUnifiedQueryAction {
 
   private final AnalyticsExecutionEngine analyticsEngine;
   private final NodeClient client;
+  private final Supplier<Schema> schemaSupplier;
 
-  public RestUnifiedQueryAction(NodeClient client, QueryPlanExecutor planExecutor) {
+  public RestUnifiedQueryAction(
+      NodeClient client, QueryPlanExecutor planExecutor, Supplier<Schema> schemaSupplier) {
     this.client = client;
     this.analyticsEngine = new AnalyticsExecutionEngine(planExecutor);
+    this.schemaSupplier = schemaSupplier;
   }
 
   /**
@@ -152,7 +155,7 @@ public class RestUnifiedQueryAction {
   }
 
   private UnifiedQueryContext buildContext(QueryType queryType, boolean profiling) {
-    AbstractSchema schema = StubSchemaProvider.buildSchema();
+    Schema schema = schemaSupplier.get();
     return UnifiedQueryContext.builder()
         .language(queryType)
         .catalog(SCHEMA_NAME, schema)
