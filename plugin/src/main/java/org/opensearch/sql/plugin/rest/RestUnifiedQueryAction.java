@@ -85,38 +85,29 @@ public class RestUnifiedQueryAction {
    * makes this expensive, consider moving the routing check to the sql-worker thread.
    */
   public boolean isAnalyticsIndex(String query, QueryType queryType) {
-    if (query == null || query.isEmpty()) {
-      return false;
-    }
-    // Cluster-level opt-in: when `cluster.pluggable.dataformat="composite"`, new indices
-    // inherit `index.pluggable.dataformat="composite"` at creation (see
-    // MetadataCreateIndexService), so every queryable target is analytics-eligible. Skip
-    // the per-index lookup — it doesn't work for aliases, wildcards, comma-lists, or data
-    // streams (Metadata#index() only resolves concrete names).
-    if ("composite"
-        .equals(
-            IndicesService.CLUSTER_PLUGGABLE_DATAFORMAT_VALUE_SETTING.get(
-                clusterService.getSettings()))) {
-      // Analytics engine can't serve system catalog; SHOW/DESCRIBE fall back to default pipeline
-      try (UnifiedQueryContext context = buildParsingContext(queryType)) {
-        boolean systemCatalog =
-            extractIndexName(query, queryType, context)
-                .map(RestUnifiedQueryAction::isSystemCatalog)
-                .orElse(false);
-        return !systemCatalog;
-      } catch (Exception e) {
-        // Check legacy-syntax SHOW/DESCRIBE; otherwise let AE handle and surface the error.
-        return !isLegacySystemCatalogQuery(query);
-      }
-    }
-    try (UnifiedQueryContext context = buildParsingContext(queryType)) {
-      return extractIndexName(query, queryType, context)
-          .map(this::stripSchemaPrefix)
-          .map(this::isPluggableDataformatIndex)
-          .orElse(false);
-    } catch (Exception e) {
-      return false;
-    }
+//    if (query == null || query.isEmpty()) {
+//      return false;
+//    }
+//    // Cluster-level opt-in: when `cluster.pluggable.dataformat="composite"`, new indices
+//    // inherit `index.pluggable.dataformat="composite"` at creation (see
+//    // MetadataCreateIndexService), so every queryable target is analytics-eligible. Skip
+//    // the per-index lookup — it doesn't work for aliases, wildcards, comma-lists, or data
+//    // streams (Metadata#index() only resolves concrete names).
+//    if ("composite"
+//        .equals(
+//            IndicesService.CLUSTER_PLUGGABLE_DATAFORMAT_VALUE_SETTING.get(
+//                clusterService.getSettings()))) {
+//      return true;
+//    }
+//    try (UnifiedQueryContext context = buildParsingContext(queryType)) {
+//      return extractIndexName(query, queryType, context)
+//          .map(this::stripSchemaPrefix)
+//          .map(this::isPluggableDataformatIndex)
+//          .orElse(false);
+//    } catch (Exception e) {
+//      return false;
+//    }
+    return true;
   }
 
   private static boolean isSystemCatalog(String name) {

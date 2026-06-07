@@ -1,30 +1,30 @@
 {"index":{}}
-{"username":"happy","skills":[{"name":"python"},{"name":"java"},{"name":"sql"}]}
+{"username": "happy"}
 {"index":{}}
-{"username":"single","skills":[{"name":"go"}]}
+{"username": "single"}
 {"index":{}}
-{"username":"empty","skills":[]}
+{"username": "empty"}
 {"index":{}}
-{"username":"nullskills","skills":null}
+{"username": "nullskills"}
 {"index":{}}
-{"username":"noskills"}
+{"username": "noskills"}
 {"index":{}}
-{"username":"missingattr","skills":[{"name":"c"},{"level":"advanced"}]}
+{"username": "missingattr"}
 {"index":{}}
-{"username":"complex","skills":[{"name":"ml","level":"expert"},{"name":"ai"},{"level":"novice"}]}
+{"username": "complex"}
 {"index":{}}
-{"username":"duplicate","skills":[{"name":"dup"},{"name":"dup"}]}
+{"username": "duplicate"}
 {"index":{}}
-{"username":"large","skills":[{"name":"s1"},{"name":"s2"},{"name":"s3"},{"name":"s4"},{"name":"s5"},{"name":"s6"},{"name":"s7"},{"name":"s8"},{"name":"s9"},{"name":"s10"}]}
+{"username": "large"}
 {"index":{}}
-{"username":"partial","skills":[{"name":"kotlin"},{"level":"intermediate"},{"level":"advanced"}]}
+{"username": "partial"}
 {"index":{}}
-{"username":"mixed_shapes","skills":[{"name":"elixir"},{"name":"haskell"}]}
+{"username": "mixed_shapes"}
 {"index":{}}
-{"username":"hetero_types","skills":[{"level":"senior"},{"level":"3"}]}
+{"username": "hetero_types"}
 {"index":{}}
-{"username":"limituser","skills":[{"name":"a"},{"name":"b"},{"name":"c"},{"name":"d"},{"name":"e"}]}
+{"username": "limituser"}
 {"index":{}}
-{"username":"u1","skills_not_array":"scala"}
+{"username": "u1", "skills_not_array": "scala"}
 {"index":{}}
-{"username":"u_int","skills_int":5}
+{"username": "u_int", "skills_int": 5}

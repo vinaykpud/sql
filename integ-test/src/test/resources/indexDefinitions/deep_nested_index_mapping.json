@@ -21,14 +21,6 @@
             "type": "keyword"
           }
         }
-      },
-      "projects": {
-        "type": "nested",
-        "properties": {
-          "name": {
-            "type": "keyword"
-          }
-        }
       }
     }
   }

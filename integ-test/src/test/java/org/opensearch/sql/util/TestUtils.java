@@ -55,8 +55,10 @@ public class TestUtils {
    */
   public static void createIndexByRestClient(RestClient client, String indexName, String mapping) {
     Request request = new Request("PUT", "/" + indexName);
-    if (!isNullOrEmpty(mapping)) {
-      request.setJsonEntity(mapping);
+    JSONObject jsonObject = isNullOrEmpty(mapping) ? new JSONObject() : new JSONObject(mapping);
+    org.opensearch.sql.legacy.TestUtils.AnalyticsIndexConfig.applyIndexCreationSettings(jsonObject);
+    if (!jsonObject.isEmpty()) {
+      request.setJsonEntity(jsonObject.toString());
     }
     performRequest(client, request);
   }
