@@ -64,15 +64,27 @@ public class TestUtils {
      */
     public static final String ENABLED_PROP = "tests.analytics.parquet_indices";
 
+    /**
+     * When set, omit Lucene from the secondary data-format list, so test-created indices run
+     * parquet-only with no Lucene-backed delegation path. Used to isolate engine-side gaps from
+     * Lucene-secondary delegation bugs in the daily IT report. No-op when {@link #ENABLED_PROP} is
+     * disabled.
+     */
+    public static final String NO_LUCENE_SECONDARY_PROP = "tests.analytics.no_lucene_secondary";
+
     public static boolean isEnabled() {
       return Boolean.parseBoolean(System.getProperty(ENABLED_PROP, "false"));
+    }
+
+    public static boolean isNoLuceneSecondary() {
+      return Boolean.parseBoolean(System.getProperty(NO_LUCENE_SECONDARY_PROP, "false"));
     }
 
     /**
      * Inject the parquet-backed composite-store index settings into {@code jsonObject}. No-op when
      * the config is disabled; idempotent — safe on any index-creation JSON shape.
      */
-    static void applyIndexCreationSettings(JSONObject jsonObject) {
+    public static void applyIndexCreationSettings(JSONObject jsonObject) {
       if (!isEnabled()) {
         return;
       }
@@ -84,7 +96,11 @@ public class TestUtils {
       indexSettings.put("pluggable.dataformat.enabled", true);
       indexSettings.put("pluggable.dataformat", "composite");
       indexSettings.put("composite.primary_data_format", "parquet");
-      indexSettings.put("composite.secondary_data_formats", new org.json.JSONArray().put("lucene"));
+      org.json.JSONArray secondaries = new org.json.JSONArray();
+      if (!isNoLuceneSecondary()) {
+        secondaries.put("lucene");
+      }
+      indexSettings.put("composite.secondary_data_formats", secondaries);
       settings.put("index", indexSettings);
       jsonObject.put("settings", settings);
     }

@@ -24,17 +24,6 @@
             }
           }
         }
-      },
-      "machine_array": {
-        "type": "nested",
-        "properties": {
-          "os1": {
-            "type": "text"
-          },
-          "ram1": {
-            "type": "long"
-          }
-        }
       }
     }
   }

@@ -14,11 +14,11 @@
         "type": "binary"
       },
       "date_value": {
-        "type" : "date",
+        "type": "date",
         "format": "yyyy-MM-dd HH:mm:ss"
       },
       "date_nanos_value": {
-        "type" : "date_nanos"
+        "type": "date_nanos"
       },
       "ip_value": {
         "type": "ip"
@@ -32,12 +32,6 @@
             "type": "text"
           }
         }
-      },
-      "nested_value": {
-        "type": "nested"
-      },
-      "geo_point_value": {
-        "type": "geo_point"
       }
     }
   }

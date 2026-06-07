@@ -1035,6 +1035,13 @@ task integTestRemote(type: RestIntegTestTask) {
         systemProperty 'tests.analytics.parquet_indices', System.getProperty("tests.analytics.parquet_indices")
     }
 
+    // Forward the parquet-only toggle. When set together with parquet_indices, omits Lucene
+    // from composite.secondary_data_formats so the daily IT run can isolate Lucene-secondary
+    // delegation bugs from real engine gaps.
+    if (System.getProperty("tests.analytics.no_lucene_secondary") != null) {
+        systemProperty 'tests.analytics.no_lucene_secondary', System.getProperty("tests.analytics.no_lucene_secondary")
+    }
+
     // Set default query size limit
     systemProperty 'defaultQuerySizeLimit', '10000'
 
