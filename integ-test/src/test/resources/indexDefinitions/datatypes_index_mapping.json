@@ -11,7 +11,8 @@
         "type": "text"
       },
       "binary_value": {
-        "type": "binary"
+        "type": "binary",
+        "store": true
       },
       "date_value": {
         "type": "date",
