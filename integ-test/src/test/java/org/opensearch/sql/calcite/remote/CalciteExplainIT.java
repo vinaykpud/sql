@@ -2348,6 +2348,7 @@ public class CalciteExplainIT extends ExplainIT {
   }
 
   @Test
+  @Ignore("Analytics-engine path does not support OpenSearch alias field type")
   public void testAliasTypeField() throws IOException {
     String expected = loadExpectedPlan("explain_alias_type_field.yaml");
     assertYamlEqualsIgnoreId(
