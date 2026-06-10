@@ -1214,14 +1214,16 @@ public class DateTimeFunctionIT extends PPLIntegTestCase {
     String timestamp = "1998-01-31 13:14:15.012345";
     String timestampFormat =
         "%a %b %c %D %d %e %f %H %h %I %i %j %k %l %M " + "%m %p %r %S %s %T %% %P";
+    // %c is unpadded month per MySQL spec ("0..12"); %m is zero-padded ("00..12").
     String timestampFormatted =
-        "Sat Jan 01 31st 31 31 012345 13 01 01 14 031 13 1 "
+        "Sat Jan 1 31st 31 31 012345 13 01 01 14 031 13 1 "
             + "January 01 PM 01:14:15 PM 15 15 13:14:15 % P";
     verifyDateFormat(timestamp, "timestamp", timestampFormat, timestampFormatted);
 
     String date = "1998-01-31";
     String dateFormat = "%U %u %V %v %W %w %X %x %Y %y";
-    String dateFormatted = "4 4 4 4 Saturday 6 1998 1998 1998 98";
+    // %U/%u/%V/%v render zero-padded width-2 (matches MySQL docs and the AE Rust impl).
+    String dateFormatted = "04 04 04 04 Saturday 6 1998 1998 1998 98";
     verifyDateFormat(date, "date", dateFormat, dateFormatted);
   }
 

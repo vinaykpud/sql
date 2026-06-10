@@ -92,26 +92,23 @@ public class CalciteAnalyticsDatetimeWireFormatIT extends PPLIntegTestCase {
     verifyDataRows(result, rows("2024-03-15 10:30:00"));
   }
 
-  /**
-   * DATE-mapped col: AE widens to TIMESTAMP at scan time; value must use space separator, not ISO
-   * {@code T}.
-   */
+  /** DATE-mapped col: AE preserves DATE schema label; value uses ISO yyyy-MM-dd. */
   @Test
   public void testDateRootColumnYmdFormat() throws IOException {
     String query = "source=" + INDEX + " | where d = '2024-03-15' | fields d";
     assertRoutedToAnalyticsEngine(query);
     JSONObject result = executeQuery(query);
-    verifySchema(result, schema("d", "timestamp"));
-    verifyDataRows(result, rows("2024-03-15 00:00:00"));
+    verifySchema(result, schema("d", "date"));
+    verifyDataRows(result, rows("2024-03-15"));
   }
 
-  /** TIME-mapped col: AE widens to TIMESTAMP; value must use space separator, not ISO {@code T}. */
+  /** TIME-mapped col: AE preserves TIME schema label; value uses HH:mm:ss, not ISO T-form. */
   @Test
   public void testTimeRootColumnHmsFormat() throws IOException {
     String query = "source=" + INDEX + " | sort t | head 1 | fields t";
     assertRoutedToAnalyticsEngine(query);
     JSONObject result = executeQuery(query);
-    verifySchema(result, schema("t", "timestamp"));
+    verifySchema(result, schema("t", "time"));
     Assert.assertFalse(
         "Time-mapped column must not surface as ISO T-separator literal",
         result.getJSONArray("datarows").getJSONArray(0).getString(0).contains("T"));
