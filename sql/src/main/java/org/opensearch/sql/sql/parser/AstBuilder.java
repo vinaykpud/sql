@@ -29,10 +29,12 @@ import org.opensearch.sql.ast.expression.AllFields;
 import org.opensearch.sql.ast.expression.Function;
 import org.opensearch.sql.ast.expression.UnresolvedArgument;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
+import org.opensearch.sql.ast.expression.WindowFunction;
 import org.opensearch.sql.ast.tree.DescribeRelation;
 import org.opensearch.sql.ast.tree.Filter;
 import org.opensearch.sql.ast.tree.Limit;
 import org.opensearch.sql.ast.tree.Project;
+import org.opensearch.sql.ast.tree.Sort;
 import org.opensearch.sql.ast.tree.Relation;
 import org.opensearch.sql.ast.tree.RelationSubquery;
 import org.opensearch.sql.ast.tree.SubqueryAlias;
@@ -112,13 +114,54 @@ public class AstBuilder extends OpenSearchSQLParserBaseVisitor<UnresolvedPlan> {
     // Project -> Limit -> visit(fromClause)
     // Else:
     // Project -> visit(fromClause)
+    //
+    // Exception: when the SELECT list contains a window function (e.g.
+    // ROW_NUMBER() OVER (...)), the Limit must sit ABOVE the Project so the
+    // window sees the full input. Otherwise Calcite resolves the AST to
+    // LogicalProject(RexOver) -> LogicalSort(fetch=N) and the window only
+    // ranks N pre-window rows. Neither the SQL HEP planner nor the
+    // analytics-engine planner enables SortProjectTransposeRule, so the AST
+    // shape we emit here is what reaches the optimizer.
     UnresolvedPlan from = visit(queryContext.fromClause());
+    if (projectListHasWindowFunction(project)) {
+      // Window-aware shape: ORDER BY (if any) and LIMIT must sit ABOVE the Project so the
+      // window ranks the full input AND so `ORDER BY <window-alias>` doesn't get rewritten
+      // to a duplicate RexOver below the Project. visitFromClause already skipped attaching
+      // the Sort (see hasWindowFunctionInProjectList branch there); we re-attach it here.
+      UnresolvedPlan result = project.attach(from);
+      OpenSearchSQLParser.OrderByClauseContext orderByCtx =
+          queryContext.fromClause() != null ? queryContext.fromClause().orderByClause() : null;
+      if (orderByCtx != null) {
+        AstSortBuilder sortBuilder = new AstSortBuilder(context.peek());
+        result = ((Sort) sortBuilder.visit(orderByCtx)).attach(result);
+      }
+      if (queryContext.limitClause() != null) {
+        result = visit(queryContext.limitClause()).attach(result);
+      }
+      context.pop();
+      return result;
+    }
     if (queryContext.limitClause() != null) {
       from = visit(queryContext.limitClause()).attach(from);
     }
     UnresolvedPlan result = project.attach(from);
     context.pop();
     return result;
+  }
+
+  /**
+   * True when any expression in {@code project}'s SELECT list is (or directly aliases) a
+   * {@link WindowFunction}. Used to route Limit above Project so window functions rank over
+   * the full input rather than the first N rows.
+   */
+  private static boolean projectListHasWindowFunction(Project project) {
+    for (UnresolvedExpression expr : project.getProjectList()) {
+      UnresolvedExpression target = (expr instanceof Alias) ? ((Alias) expr).getDelegated() : expr;
+      if (target instanceof WindowFunction) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
@@ -163,7 +206,14 @@ public class AstBuilder extends OpenSearchSQLParserBaseVisitor<UnresolvedPlan> {
       result = visit(ctx.havingClause()).attach(result);
     }
 
-    if (ctx.orderByClause() != null) {
+    if (ctx.orderByClause() != null && !context.peek().hasWindowFunctionInProjectList()) {
+      // Window-aware path: if a window function appears in the SELECT list, defer ORDER BY
+      // attachment to visitQuerySpecification so the Sort can sit ABOVE the Project. Attaching
+      // it here would put the Sort below the user's Project; replaceIfAliasOrOrdinal then
+      // expands `ORDER BY <window-alias>` into the underlying RexOver, and Calcite splits the
+      // plan into Project(RexOver) -> Sort(RexOver) -> Project(RexOver) — two RexOvers reach
+      // the reduce-stage substrait emitter and DataFusion sees duplicate unqualified field
+      // names ("row_number() ORDER BY [...] RANGE BETWEEN ...").
       AstSortBuilder sortBuilder = new AstSortBuilder(context.peek());
       result = sortBuilder.visit(ctx.orderByClause()).attach(result);
     }

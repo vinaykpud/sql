@@ -28,8 +28,10 @@ import org.antlr.v4.runtime.tree.ParseTree;
 import org.opensearch.sql.ast.dsl.AstDSL;
 import org.opensearch.sql.ast.expression.DataType;
 import org.opensearch.sql.ast.expression.Literal;
+import org.opensearch.sql.ast.expression.Alias;
 import org.opensearch.sql.ast.expression.QualifiedName;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
+import org.opensearch.sql.ast.expression.WindowFunction;
 import org.opensearch.sql.ast.tree.Sort.SortOption;
 import org.opensearch.sql.common.utils.StringUtils;
 import org.opensearch.sql.exception.SemanticCheckException;
@@ -114,6 +116,23 @@ public class QuerySpecification {
     } else {
       return expr;
     }
+  }
+
+  /**
+   * True when any SELECT-list expression is (or aliases) a {@link WindowFunction}. Used by
+   * {@link org.opensearch.sql.sql.parser.AstBuilder#visitQuerySpecification} to defer ORDER BY
+   * attachment so the Sort sits ABOVE the Project instead of below it — avoids re-materializing
+   * the window expression once inside the user's Project and once inside an inner Project
+   * synthesized to host the Sort's expanded-alias reference.
+   */
+  public boolean hasWindowFunctionInProjectList() {
+    for (UnresolvedExpression item : selectItems) {
+      UnresolvedExpression target = (item instanceof Alias) ? ((Alias) item).getDelegated() : item;
+      if (target instanceof WindowFunction) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean isIntegerLiteral(UnresolvedExpression expr) {

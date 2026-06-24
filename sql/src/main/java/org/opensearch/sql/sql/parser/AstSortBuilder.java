@@ -14,9 +14,11 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.opensearch.sql.ast.expression.Alias;
 import org.opensearch.sql.ast.expression.Argument;
 import org.opensearch.sql.ast.expression.Field;
 import org.opensearch.sql.ast.expression.UnresolvedExpression;
+import org.opensearch.sql.ast.expression.WindowFunction;
 import org.opensearch.sql.ast.tree.Sort;
 import org.opensearch.sql.ast.tree.Sort.NullOrder;
 import org.opensearch.sql.ast.tree.Sort.SortOption;
@@ -45,10 +47,23 @@ public class AstSortBuilder extends OpenSearchSQLParserBaseVisitor<UnresolvedPla
     List<UnresolvedExpression> items = querySpec.getOrderByItems();
     List<SortOption> options = querySpec.getOrderByOptions();
     for (int i = 0; i < items.size(); i++) {
-      fields.add(
-          new Field(
-              querySpec.replaceIfAliasOrOrdinal(items.get(i)),
-              createSortArguments(options.get(i))));
+      UnresolvedExpression item = items.get(i);
+      // When ORDER BY references a SELECT-list alias that resolves to a WindowFunction
+      // (e.g. ORDER BY rn where rn = ROW_NUMBER() OVER (...)), keep the alias reference
+      // instead of inlining the underlying WindowFunction. Re-expanding it back into a
+      // fresh window expression would produce a duplicate RexOver in the Sort's collation
+      // — DataFusion's substrait consumer would then reject the reduce-stage schema with
+      // "duplicate unqualified field name row_number() ORDER BY [...] RANGE BETWEEN ...".
+      UnresolvedExpression resolved;
+      if (querySpec.isSelectAlias(item)) {
+        UnresolvedExpression target = querySpec.getSelectItemByAlias(item);
+        UnresolvedExpression unwrapped =
+            (target instanceof Alias) ? ((Alias) target).getDelegated() : target;
+        resolved = (unwrapped instanceof WindowFunction) ? item : target;
+      } else {
+        resolved = querySpec.replaceIfAliasOrOrdinal(item);
+      }
+      fields.add(new Field(resolved, createSortArguments(options.get(i))));
     }
     return fields;
   }
